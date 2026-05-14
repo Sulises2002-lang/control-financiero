@@ -66,57 +66,59 @@ function Login({onLogin,C}){
   function numPad(n){if(pin.length<6)setPin(p=>p+n);}
   function del(){setPin(p=>p.slice(0,-1));}
 
+  // Fase: "pin" = ingresando PIN, "confirm" = confirmando (solo setup)
+  const fase = mode==="login" ? "pin" : pin.length<6&&pin.length>=0 ? "pin" : "confirmar";
+  const pinListo = mode==="setup" ? pin.length>=4 : pin.length>=4;
+  const mostrarConfirm = mode==="setup" && pin.length>=4;
+
+  function numPadActive(val, setter, max){ if(val.length<max) setter(p=>p+String.fromCharCode(48+parseInt(arguments[0]))); }
+
   return(
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
       <div style={{fontSize:40,marginBottom:8}}>🔐</div>
       <div style={{fontSize:22,fontWeight:"bold",color:C.navy,marginBottom:4}}>Control Financiero</div>
-      <div style={{fontSize:13,color:C.gray,marginBottom:32}}>{mode==="setup"?"Crea tu PIN de acceso":"Ingresa tu PIN"}</div>
+      <div style={{fontSize:13,color:C.gray,marginBottom:32}}>{mode==="setup"?"Crea tu PIN de acceso (4-6 dígitos)":"Ingresa tu PIN"}</div>
 
       {/* Puntos PIN */}
-      <div style={{display:"flex",gap:12,marginBottom:24}}>
-        {[0,1,2,3,4,5].slice(0,mode==="setup"?6:6).map(i=>(
-          <div key={i} style={{width:16,height:16,borderRadius:8,background:pin.length>i?C.navy:C.border,transition:"background .2s"}} />
+      <div style={{marginBottom:6,fontSize:11,color:C.gray}}>{mode==="setup"&&!mostrarConfirm?"Tu PIN":mode==="setup"&&mostrarConfirm?"Confirma tu PIN":"PIN"}</div>
+      <div style={{display:"flex",gap:14,marginBottom:24}}>
+        {[0,1,2,3,4,5].map(i=>(
+          <div key={i} style={{width:16,height:16,borderRadius:8,background:(!mostrarConfirm?pin:confirm).length>i?C.navy:C.border,transition:"background .2s"}} />
         ))}
       </div>
 
-      {mode==="setup"&&pin.length>=4&&(
-        <div style={{marginBottom:16,width:"100%",maxWidth:280}}>
-          <div style={{fontSize:11,color:C.gray,textAlign:"center",marginBottom:8}}>Confirma tu PIN</div>
-          <div style={{display:"flex",gap:12,justifyContent:"center",marginBottom:8}}>
-            {[0,1,2,3,4,5].map(i=>(
-              <div key={i} style={{width:14,height:14,borderRadius:7,background:confirm.length>i?C.blue:C.border}} />
-            ))}
-          </div>
-          {confirm.length>0&&<div style={{display:"flex",gap:8,justifyContent:"center"}}>
-            {[1,2,3,4,5,6,7,8,9].map(n=>(
-              <button key={n} onClick={()=>{if(confirm.length<6)setConfirm(p=>p+n);}} style={{width:44,height:44,borderRadius:22,border:`1.5px solid ${C.border}`,background:C.cardBg,fontSize:18,fontWeight:"bold",color:C.text,cursor:"pointer"}}>{n}</button>
-            ))}
-            <button onClick={()=>setConfirm(p=>p.slice(0,-1))} style={{width:44,height:44,borderRadius:22,border:`1.5px solid ${C.border}`,background:C.cardBg,fontSize:14,color:C.gray,cursor:"pointer"}}>⌫</button>
-            <button onClick={()=>{if(confirm.length<6)setConfirm(p=>p+"0");}} style={{width:44,height:44,borderRadius:22,border:`1.5px solid ${C.border}`,background:C.cardBg,fontSize:18,fontWeight:"bold",color:C.text,cursor:"pointer"}}>0</button>
-          </div>}
-        </div>
-      )}
-
-      {/* Teclado numérico */}
-      {(mode==="login"||(mode==="setup"&&pin.length<4))&&(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,maxWidth:220}}>
-          {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((n,i)=>(
-            <button key={i} onClick={()=>n==="⌫"?del():n!==""?numPad(n.toString()):null}
-              style={{width:60,height:60,borderRadius:30,border:`1.5px solid ${C.border}`,background:n==="⌫"?C.lred:C.cardBg,fontSize:n==="⌫"?16:20,fontWeight:"bold",color:n==="⌫"?C.red:C.text,cursor:n===""?"default":"pointer",opacity:n===""?0:1}}>
+      {/* Teclado numérico — siempre visible */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,maxWidth:240}}>
+        {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((n,i)=>{
+          const active = !mostrarConfirm ? pin.length<6 : confirm.length<6;
+          return(
+            <button key={i} onClick={()=>{
+              if(n==="⌫"){if(!mostrarConfirm)setPin(p=>p.slice(0,-1));else setConfirm(p=>p.slice(0,-1));}
+              else if(n!==""&&active){if(!mostrarConfirm)setPin(p=>p+n.toString());else setConfirm(p=>p+n.toString());}
+            }}
+            style={{width:64,height:64,borderRadius:32,border:`1.5px solid ${C.border}`,background:n==="⌫"?C.lred:C.cardBg,fontSize:n==="⌫"?18:22,fontWeight:"bold",color:n==="⌫"?C.red:n===""?"transparent":C.text,cursor:n===""?"default":"pointer",boxShadow:"0 2px 6px rgba(0,0,0,0.08)",transition:"transform .1s",opacity:n===""?0:1}}>
               {n}
             </button>
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </div>
 
-      {err&&<div style={{color:C.red,fontSize:13,marginTop:12,padding:"8px 16px",background:C.lred,borderRadius:8}}>{err}</div>}
+      {err&&<div style={{color:C.red,fontSize:13,marginTop:16,padding:"8px 16px",background:C.lred,borderRadius:8}}>{err}</div>}
 
-      {mode==="login"&&pin.length>=4&&(
-        <button onClick={handleLogin} style={{marginTop:20,padding:"12px 40px",borderRadius:12,border:"none",background:C.navy,color:"#fff",fontWeight:"bold",fontSize:15,cursor:"pointer"}}>Entrar</button>
-      )}
-      {mode==="setup"&&pin.length>=4&&confirm.length>=4&&(
-        <button onClick={handleSetup} style={{marginTop:20,padding:"12px 40px",borderRadius:12,border:"none",background:C.navy,color:"#fff",fontWeight:"bold",fontSize:15,cursor:"pointer"}}>Crear PIN</button>
-      )}
+      <div style={{marginTop:20,display:"flex",flexDirection:"column",gap:10,width:"100%",maxWidth:240}}>
+        {mode==="login"&&pin.length>=4&&(
+          <button onClick={handleLogin} style={{padding:"13px",borderRadius:12,border:"none",background:C.navy,color:"#fff",fontWeight:"bold",fontSize:15,cursor:"pointer"}}>Entrar →</button>
+        )}
+        {mode==="setup"&&!mostrarConfirm&&pin.length>=4&&(
+          <button onClick={()=>setPin(p=>p)} style={{padding:"13px",borderRadius:12,border:"none",background:C.blue,color:"#fff",fontWeight:"bold",fontSize:14,cursor:"pointer"}}>Continuar →</button>
+        )}
+        {mode==="setup"&&mostrarConfirm&&confirm.length>=4&&(
+          <button onClick={handleSetup} style={{padding:"13px",borderRadius:12,border:"none",background:C.navy,color:"#fff",fontWeight:"bold",fontSize:15,cursor:"pointer"}}>✅ Crear PIN</button>
+        )}
+        {mode==="setup"&&mostrarConfirm&&(
+          <button onClick={()=>{setPin("");setConfirm("");}} style={{padding:"10px",borderRadius:12,border:`1px solid ${C.border}`,background:"transparent",color:C.gray,fontSize:13,cursor:"pointer"}}>← Cambiar PIN</button>
+        )}
+      </div>
     </div>
   );
 }
