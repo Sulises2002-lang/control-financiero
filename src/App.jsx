@@ -13,7 +13,7 @@ const fmtShort=d=>new Date(d+"T12:00:00").toLocaleDateString("es-MX",{day:"2-dig
 const today=()=>new Date().toISOString().slice(0,10);
 const BANCOS=["Cruco Banorte","Cruco Afirme","Colpi Afirme"];
 const CATEGORIAS=["Operación","Nómina","Proveedor","Bancario"];
-const TIPO_META={ingreso:{emoji:"📥",bg:"#e8f5e9",color:"#2e7d32",label:"Ingreso"},egreso:{emoji:"📤",bg:"#fce4ec",color:"#c62828",label:"Egreso"},ajuste:{emoji:"⚖️",bg:"#fff8e1",color:"#f57f17",label:"Ajuste"}};
+const TIPO_META={ingreso:{emoji:"📥",bg:"#e8f5e9",color:"#2e7d32",label:"Ingreso"},egreso:{emoji:"📤",bg:"#fce4ec",color:"#c62828",label:"Egreso"},ajuste:{emoji:"⚖️",bg:"#fff8e1",color:"#f57f17",label:"Ajuste"},transferencia:{emoji:"🔄",bg:"#ede7f6",color:"#6a1b9a",label:"Transferencia"}};
 
 // ══ TEMA ══
 const LIGHT={navy:"#1a3a5c",blue:"#2e6da4",lblue:"#e8f0fb",xblue:"#f0f5fb",green:"#2e7d32",lgreen:"#e8f5e9",red:"#c62828",lred:"#fce4ec",gold:"#f57f17",lgold:"#fff8e1",gray:"#888",lgray:"#f5f5f5",border:"#e0e0e0",white:"#fff",bg:"#f7f3ee",cardBg:"#fff",text:"#1a1a1a"};
@@ -35,7 +35,9 @@ function saldoCliente(c,movs){
 }
 function saldoCuenta(c,movs){
   const cm=movs.filter(m=>m.cuentaId===c.id);
-  return(c.saldoInicial||0)+cm.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0)-cm.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0)+cm.filter(m=>m.tipo==="ajuste").reduce((a,m)=>a+m.montoFinal,0);
+  const transferSalida=movs.filter(m=>m.tipo==="transferencia"&&m.cuentaOrigenId===c.id).reduce((a,m)=>a+m.montoFinal,0);
+  const transferEntrada=movs.filter(m=>m.tipo==="transferencia"&&m.cuentaDestinoId===c.id).reduce((a,m)=>a+m.montoFinal,0);
+  return(c.saldoInicial||0)+cm.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0)-cm.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0)+cm.filter(m=>m.tipo==="ajuste").reduce((a,m)=>a+m.montoFinal,0)-transferSalida+transferEntrada;
 }
 function resumenTotal(cls,ctas,movs){
   const total=ctas.reduce((a,c)=>a+saldoCuenta(c,movs),0);
@@ -155,6 +157,95 @@ function Calc({monto,tipo,cliente,banco,esNomina,C}){
       {!esNomina&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.gray}}>Sin IVA (÷1.16)</span><span style={{color:C.gray}}>{fmt(c.montoSinIVA)}</span></div>}
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontSize:12,color:C.red}}>Comisión {c.pct}% {esNomina?"(total)":"(subtotal)"}</span><span style={{color:C.red,fontWeight:"bold"}}>− {fmt(c.comision)}</span></div>
       <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,display:"flex",justifyContent:"space-between"}}><span style={{fontWeight:"bold",color:C.navy}}>Monto final</span><span style={{fontWeight:"bold",fontSize:17,color:C.green}}>{fmt(c.montoFinal)}</span></div>
+    </div>
+  );
+}
+
+// ══ FORM TRANSFERENCIA INTERNA ══
+function FormTransferencia({cuentas,ini,onSave,C}){
+  const inp2={width:"100%",padding:"9px 12px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:14,boxSizing:"border-box",outline:"none",fontFamily:"inherit",background:C.cardBg,color:C.text};
+  const lbl2={fontSize:10,color:C.gray,letterSpacing:1.5,textTransform:"uppercase",marginBottom:3,display:"block"};
+  const [origenId,setOrigenId]=useState(ini?.cuentaOrigenId||"");
+  const [destinoId,setDestinoId]=useState(ini?.cuentaDestinoId||"");
+  const [monto,setMonto]=useState(ini?.montoFinal?.toString()||"");
+  const [concepto,setConcepto]=useState(ini?.concepto||"Transferencia entre cuentas");
+  const [fecha,setFecha]=useState(ini?.fecha||today());
+  const [notas,setNotas]=useState(ini?.notas||"");
+  const [err,setErr]=useState("");
+
+  const origen=cuentas.find(c=>c.id===origenId);
+  const destino=cuentas.find(c=>c.id===destinoId);
+
+  function guardar(){
+    if(!origenId)return setErr("Selecciona la cuenta origen.");
+    if(!destinoId)return setErr("Selecciona la cuenta destino.");
+    if(origenId===destinoId)return setErr("La cuenta origen y destino deben ser diferentes.");
+    const m=parseFloat(monto);
+    if(!m||m<=0)return setErr("El monto debe ser mayor a 0.");
+    setErr("");
+    onSave({
+      id:ini?.id||uid(),
+      tipo:"transferencia",
+      cuentaId:origenId, // para compatibilidad con filtros
+      cuentaOrigenId:origenId,
+      cuentaDestinoId:destinoId,
+      clienteId:null,
+      concepto,notas,fecha,
+      montoOriginal:m,montoSinIVA:0,comision:0,montoFinal:m,pct:0,
+      estado:"confirmado",revisado:false,historial:[],esNomina:false,banco:null,
+    });
+  }
+
+  return(
+    <div>
+      <div style={{background:"#ede7f6",borderRadius:12,padding:"12px 14px",marginBottom:16,borderLeft:"4px solid #6a1b9a"}}>
+        <div style={{fontSize:12,color:"#6a1b9a",fontWeight:"bold",marginBottom:4}}>🔄 Transferencia interna</div>
+        <div style={{fontSize:12,color:"#888"}}>El monto sale de una cuenta y entra a otra. Sin comisión.</div>
+      </div>
+
+      <span style={lbl2}>Cuenta origen (sale el dinero) *</span>
+      <select value={origenId} onChange={e=>{setOrigenId(e.target.value);if(e.target.value===destinoId)setDestinoId("");}} style={{...inp2,marginBottom:12}}>
+        <option value="">— Selecciona —</option>
+        {cuentas.map(c=><option key={c.id} value={c.id}>🏦 {c.nombre} ({c.banco})</option>)}
+      </select>
+
+      <span style={lbl2}>Cuenta destino (entra el dinero) *</span>
+      <select value={destinoId} onChange={e=>{setDestinoId(e.target.value);if(e.target.value===origenId)setOrigenId("");}} style={{...inp2,marginBottom:12}}>
+        <option value="">— Selecciona —</option>
+        {cuentas.filter(c=>c.id!==origenId).map(c=><option key={c.id} value={c.id}>🏦 {c.nombre} ({c.banco})</option>)}
+      </select>
+
+      {/* Preview */}
+      {origenId&&destinoId&&parseFloat(monto)>0&&(
+        <div style={{background:C.xblue,borderRadius:10,padding:"12px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+          <div style={{textAlign:"center",flex:1}}>
+            <div style={{fontSize:11,color:C.gray}}>Sale de</div>
+            <div style={{fontWeight:"bold",color:C.red,fontSize:13}}>{origen?.nombre}</div>
+            <div style={{fontSize:16,color:C.red}}>− {fmt(parseFloat(monto))}</div>
+          </div>
+          <div style={{fontSize:24}}>→</div>
+          <div style={{textAlign:"center",flex:1}}>
+            <div style={{fontSize:11,color:C.gray}}>Llega a</div>
+            <div style={{fontWeight:"bold",color:C.green,fontSize:13}}>{destino?.nombre}</div>
+            <div style={{fontSize:16,color:C.green}}>+ {fmt(parseFloat(monto))}</div>
+          </div>
+        </div>
+      )}
+
+      <span style={lbl2}>Monto ($) *</span>
+      <input inputMode="decimal" placeholder="0.00" value={monto} onChange={e=>setMonto(e.target.value)} style={{...inp2,fontSize:18,marginBottom:12}} />
+
+      <span style={lbl2}>Concepto</span>
+      <input value={concepto} onChange={e=>setConcepto(e.target.value)} style={{...inp2,marginBottom:12}} />
+
+      <span style={lbl2}>Fecha</span>
+      <input type="date" value={fecha} onChange={e=>setFecha(e.target.value)} style={{...inp2,marginBottom:12}} />
+
+      <span style={lbl2}>Notas</span>
+      <input value={notas} onChange={e=>setNotas(e.target.value)} placeholder="Opcional" style={{...inp2,marginBottom:16}} />
+
+      {err&&<div style={{color:C.red,fontSize:13,padding:"8px 12px",background:C.lred,borderRadius:8,marginBottom:10}}>⚠️ {err}</div>}
+      <button onClick={guardar} style={{width:"100%",padding:13,borderRadius:9,border:"none",background:"#6a1b9a",color:"#fff",fontWeight:"bold",fontSize:15,cursor:"pointer"}}>{ini?"Guardar cambios":"Registrar transferencia"}</button>
     </div>
   );
 }
@@ -626,7 +717,10 @@ function Movimientos({cls,ctas,movs,onAdd,onEdit,onDel,clientesRecientes,onUpdat
 
   return(
     <div>
-      <button onClick={()=>setModal("nuevo")} style={{width:"100%",padding:"10px",borderRadius:9,border:"none",background:C.navy,color:"#fff",fontWeight:"bold",fontSize:13,cursor:"pointer",marginBottom:12}}>+ Registrar movimiento</button>
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <button onClick={()=>setModal("nuevo")} style={{flex:1,padding:"10px",borderRadius:9,border:"none",background:C.navy,color:"#fff",fontWeight:"bold",fontSize:13,cursor:"pointer"}}>+ Registrar movimiento</button>
+        <button onClick={()=>setModal("transferencia")} style={{flex:"0 0 auto",padding:"10px 14px",borderRadius:9,border:"none",background:"#6a1b9a",color:"#fff",fontWeight:"bold",fontSize:13,cursor:"pointer"}}>🔄 Transferencia</button>
+      </div>
       <input value={buscar} onChange={e=>setBuscar(e.target.value)} placeholder="🔍 Buscar por concepto..." style={{...inp2,marginBottom:10}} />
       <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
         {["ingreso","egreso","ajuste"].map(t=>{const mt=TIPO_META[t];return<button key={t} onClick={()=>setF(p=>({...p,tipo:p.tipo===t?"":t}))} style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${f.tipo===t?mt.color:C.border}`,background:f.tipo===t?mt.bg:C.cardBg,color:f.tipo===t?mt.color:C.gray,fontSize:12,cursor:"pointer",fontWeight:f.tipo===t?"bold":"normal"}}>{mt.emoji} {mt.label}</button>;})}
@@ -639,28 +733,42 @@ function Movimientos({cls,ctas,movs,onAdd,onEdit,onDel,clientesRecientes,onUpdat
       </div>
       <div style={{fontSize:11,color:C.gray,marginBottom:8}}>{filtrados.length} movimiento{filtrados.length!==1?"s":""}</div>
       {filtrados.length===0&&<div style={{color:C.gray,textAlign:"center",padding:30,fontSize:13}}>Sin movimientos</div>}
-      {filtrados.map(m=>{const mt=TIPO_META[m.tipo];const cli=cls.find(c=>c.id===m.clienteId);const cta=ctas.find(c=>c.id===m.cuentaId);return(
-        <div key={m.id} style={{background:C.cardBg,borderRadius:14,padding:14,boxShadow:"0 2px 10px rgba(0,0,0,0.07)",marginBottom:8,borderLeft:m.revisado?`3px solid ${C.green}`:"none"}}>
+      {filtrados.map(m=>{
+        const mt=TIPO_META[m.tipo]||TIPO_META.ajuste;
+        const cli=cls.find(c=>c.id===m.clienteId);
+        const cta=ctas.find(c=>c.id===m.cuentaId);
+        const ctaOrigen=ctas.find(c=>c.id===m.cuentaOrigenId);
+        const ctaDestino=ctas.find(c=>c.id===m.cuentaDestinoId);
+        const esTransf=m.tipo==="transferencia";
+        return(
+        <div key={m.id} style={{background:C.cardBg,borderRadius:14,padding:14,boxShadow:"0 2px 10px rgba(0,0,0,0.07)",marginBottom:8,borderLeft:m.revisado?`3px solid ${C.green}`:esTransf?"3px solid #6a1b9a":"none"}}>
           <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-            <div style={{background:mt.bg,borderRadius:8,padding:"6px 8px",fontSize:16,flexShrink:0}}>{mt.emoji}</div>
+            <div style={{background:esTransf?"#ede7f6":mt.bg,borderRadius:8,padding:"6px 8px",fontSize:16,flexShrink:0}}>{esTransf?"🔄":mt.emoji}</div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                 <div style={{flex:1}}>
                   <div style={{fontWeight:"bold",fontSize:14,color:C.navy}}>{m.concepto||"Sin concepto"}</div>
-                  <div style={{fontSize:11,color:C.gray,marginTop:2}}>{cta?.nombre}{cli&&` · ${cli.nombre}`} · {fmtDate(m.fecha)}{m.banco&&` · ${m.banco}`}{m.esNomina&&<span style={{background:C.lgold,color:C.gold,borderRadius:20,padding:"1px 6px",fontSize:10,fontWeight:"bold",marginLeft:4}}>Nómina</span>}</div>
+                  {esTransf?(
+                    <div style={{fontSize:11,color:C.gray,marginTop:2}}>
+                      🏦 {ctaOrigen?.nombre} → {ctaDestino?.nombre} · {fmtDate(m.fecha)}
+                    </div>
+                  ):(
+                    <div style={{fontSize:11,color:C.gray,marginTop:2}}>{cta?.nombre}{cli&&` · ${cli.nombre}`} · {fmtDate(m.fecha)}{m.banco&&` · ${m.banco}`}{m.esNomina&&<span style={{background:C.lgold,color:C.gold,borderRadius:20,padding:"1px 6px",fontSize:10,fontWeight:"bold",marginLeft:4}}>Nómina</span>}</div>
+                  )}
                   <div style={{display:"flex",gap:4,marginTop:3,flexWrap:"wrap"}}>
                     {m.estado==="pendiente"&&<span style={{background:"#fff3e0",color:C.gold,borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:"bold"}}>Pendiente</span>}
                     {m.revisado&&<span style={{background:C.lgreen,color:C.green,borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:"bold"}}>✓ Revisado</span>}
+                    {esTransf&&<span style={{background:"#ede7f6",color:"#6a1b9a",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:"bold"}}>Interna</span>}
                   </div>
                 </div>
                 <div style={{textAlign:"right",marginLeft:8,flexShrink:0}}>
-                  <div style={{fontWeight:"bold",color:m.tipo==="egreso"?C.red:m.tipo==="ajuste"?C.gold:C.green}}>{fmt(m.montoFinal)}</div>
+                  <div style={{fontWeight:"bold",color:esTransf?"#6a1b9a":m.tipo==="egreso"?C.red:m.tipo==="ajuste"?C.gold:C.green}}>{fmt(m.montoFinal)}</div>
                   {m.comision>0&&<div style={{fontSize:10,color:C.gold}}>com {m.pct}%: {fmt(m.comision)}</div>}
                 </div>
               </div>
               <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
-                <button onClick={()=>setModal(m)} style={{padding:"4px 10px",borderRadius:9,border:"none",background:C.lblue,color:C.navy,fontWeight:"bold",fontSize:11,cursor:"pointer"}}>Editar</button>
-                <button onClick={()=>{const clon={...m,id:uid(),concepto:(m.concepto||"")+" (copia)",historial:[],revisado:false};onAdd(clon);}} style={{padding:"4px 10px",borderRadius:9,border:"none",background:C.lgold,color:C.gold,fontWeight:"bold",fontSize:11,cursor:"pointer"}}>Duplicar</button>
+                <button onClick={()=>setModal(esTransf?{...m,_esTransf:true}:m)} style={{padding:"4px 10px",borderRadius:9,border:"none",background:C.lblue,color:C.navy,fontWeight:"bold",fontSize:11,cursor:"pointer"}}>Editar</button>
+                {!esTransf&&<button onClick={()=>{const clon={...m,id:uid(),concepto:(m.concepto||"")+" (copia)",historial:[],revisado:false};onAdd(clon);}} style={{padding:"4px 10px",borderRadius:9,border:"none",background:C.lgold,color:C.gold,fontWeight:"bold",fontSize:11,cursor:"pointer"}}>Duplicar</button>}
                 <button onClick={()=>onEdit({...m,revisado:!m.revisado})} style={{padding:"4px 10px",borderRadius:9,border:"none",background:m.revisado?C.lgray:C.lgreen,color:m.revisado?C.gray:C.green,fontWeight:"bold",fontSize:11,cursor:"pointer"}}>{m.revisado?"Sin revisar":"✓ Revisar"}</button>
                 <button onClick={()=>{if(window.confirm(`¿Eliminar?\n${m.concepto||"Sin concepto"} · ${fmt(m.montoFinal)}`))onDel(m.id);}} style={{padding:"4px 10px",borderRadius:9,border:"none",background:C.lred,color:C.red,fontWeight:"bold",fontSize:11,cursor:"pointer"}}>Eliminar</button>
               </div>
@@ -668,8 +776,14 @@ function Movimientos({cls,ctas,movs,onAdd,onEdit,onDel,clientesRecientes,onUpdat
           </div>
         </div>
       );})}
-      {modal&&<Modal title={modal==="nuevo"?"Nuevo movimiento":"Editar movimiento"} onClose={()=>setModal(null)} C={C}>
+      {modal&&modal!=="transferencia"&&!modal?._esTransf&&<Modal title={modal==="nuevo"?"Nuevo movimiento":"Editar movimiento"} onClose={()=>setModal(null)} C={C}>
         <FormMov clientes={cls} cuentas={ctas} ini={modal==="nuevo"?null:modal} clientesRecientes={clientesRecientes} onSave={m=>{modal==="nuevo"?handleAdd(m):handleEdit(m);setModal(null);}} C={C} />
+      </Modal>}
+      {modal&&(modal==="transferencia"||modal?._esTransf)&&<Modal title={modal==="transferencia"?"Nueva transferencia":"Editar transferencia"} onClose={()=>setModal(null)} C={C}>
+        <FormTransferencia cuentas={ctas} ini={modal==="transferencia"?null:modal} onSave={m=>{modal==="transferencia"?handleAdd(m):handleEdit(m);setModal(null);}} C={C} />
+      </Modal>}
+      {modal&&modal!=="nuevo"&&modal!=="transferencia"&&!modal?._esTransf&&<Modal title="Editar movimiento" onClose={()=>setModal(null)} C={C}>
+        <FormMov clientes={cls} cuentas={ctas} ini={modal} clientesRecientes={clientesRecientes} onSave={m=>{handleEdit(m);setModal(null);}} C={C} />
       </Modal>}
     </div>
   );
