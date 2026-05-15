@@ -1024,18 +1024,91 @@ function Cierres({cls,ctas,movs,cierres,onCerrar,onBorrarUno,onBorrarTodos,C,tod
         </table>
 
         <div class="section">Movimientos por cuenta</div>
-        ${cuentasAgrupadas.map(({nombre, banco, movimientos}) => `
-          <div class="cuenta-header">🏦 ${nombre} — ${banco}</div>
-          <table>
-            <tr>
-              <th>Tipo</th><th>Concepto</th><th>Operación</th>
-              <th style="text-align:right">Monto</th>
-              <th style="text-align:right">Comisión</th>
-            </tr>
-            ${movimientos.map(m => filaMovimiento(m)).join("")}
-            ${subtotalSeccion(movimientos)}
-          </table>
-        `).join("")}
+        ${cuentasAgrupadas.map(({nombre, banco, movimientos}) => {
+          const ingresos  = movimientos.filter(m => m.tipo === "ingreso");
+          const egresos   = movimientos.filter(m => m.tipo === "egreso" || m.tipo === "ajuste");
+          const transOut  = movimientos.filter(m => m.tipo === "transferencia" && m._dir === "salida");
+          const transIn   = movimientos.filter(m => m.tipo === "transferencia" && m._dir === "entrada");
+          const totalIng  = ingresos.reduce((a,m)=>a+m.montoFinal,0) + transIn.reduce((a,m)=>a+m.montoFinal,0);
+          const totalEg   = egresos.reduce((a,m)=>a+m.montoFinal,0)  + transOut.reduce((a,m)=>a+m.montoFinal,0);
+          const totalCom  = ingresos.reduce((a,m)=>a+m.comision,0);
+          const neto      = totalIng - totalEg;
+
+          function tablaIng(lista) {
+            if(!lista.length) return `<tr><td colspan="4" style="text-align:center;color:#aaa;padding:10px">Sin ingresos</td></tr>`;
+            return lista.map(m=>`
+              <tr>
+                <td>${m.concepto||"Sin concepto"}</td>
+                <td>${m.esNomina?"🧾 Nómina":m._dir==="entrada"?"🔄 Transferencia entrada":"💸 Transferencia"}</td>
+                <td style="text-align:right;font-weight:bold;color:#2e7d32">+${fmt(m.montoFinal)}</td>
+                <td style="text-align:right;color:#f57f17">${m.comision>0?fmt(m.comision):"-"}</td>
+              </tr>`).join("");
+          }
+
+          function tablaEg(lista) {
+            if(!lista.length) return `<tr><td colspan="3" style="text-align:center;color:#aaa;padding:10px">Sin egresos</td></tr>`;
+            return lista.map(m=>`
+              <tr>
+                <td>${m.concepto||"Sin concepto"}</td>
+                <td>${m._dir==="salida"?"🔄 Transferencia salida":m.tipo==="ajuste"?"⚖️ Ajuste":"💸 Transferencia"}</td>
+                <td style="text-align:right;font-weight:bold;color:#c62828">-${fmt(m.montoFinal)}</td>
+              </tr>`).join("");
+          }
+
+          return `
+            <div class="cuenta-header">🏦 ${nombre} — ${banco}</div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:0">
+
+              <div>
+                <div style="background:#e8f5e9;padding:7px 12px;font-weight:bold;font-size:12px;color:#2e7d32;border-right:1px solid #ddd">
+                  📥 INGRESOS — ${fmt(totalIng)}
+                </div>
+                <table style="border-right:1px solid #ddd">
+                  <tr>
+                    <th style="background:#2e7d32">Concepto</th>
+                    <th style="background:#2e7d32">Operación</th>
+                    <th style="background:#2e7d32;text-align:right">Monto</th>
+                    <th style="background:#2e7d32;text-align:right">Comisión</th>
+                  </tr>
+                  ${tablaIng([...ingresos,...transIn])}
+                  <tr style="background:#e8f5e9;font-weight:bold">
+                    <td colspan="2">Subtotal ingresos</td>
+                    <td style="text-align:right;color:#2e7d32">+${fmt(totalIng)}</td>
+                    <td style="text-align:right;color:#f57f17">${fmt(totalCom)}</td>
+                  </tr>
+                </table>
+              </div>
+
+              <div>
+                <div style="background:#fce4ec;padding:7px 12px;font-weight:bold;font-size:12px;color:#c62828">
+                  📤 EGRESOS — ${fmt(totalEg)}
+                </div>
+                <table>
+                  <tr>
+                    <th style="background:#c62828">Concepto</th>
+                    <th style="background:#c62828">Tipo</th>
+                    <th style="background:#c62828;text-align:right">Monto</th>
+                  </tr>
+                  ${tablaEg([...egresos,...transOut])}
+                  <tr style="background:#fce4ec;font-weight:bold">
+                    <td colspan="2">Subtotal egresos</td>
+                    <td style="text-align:right;color:#c62828">-${fmt(totalEg)}</td>
+                  </tr>
+                </table>
+              </div>
+
+            </div>
+
+            <div style="background:#1a3a5c;color:#fff;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+              <span style="font-weight:bold;font-size:13px">Neto ${nombre}</span>
+              <div style="display:flex;gap:24px">
+                <span>💸 Com: <b style="color:#fff176">${fmt(totalCom)}</b></span>
+                <span>Neto: <b style="color:${neto>=0?"#a5d6a7":"#ef9a9a"}">${neto>=0?"+":""}${fmt(neto)}</b></span>
+              </div>
+            </div>
+          `;
+        }).join("")}
 
         <table style="margin-top:20px">
           <tr class="total-final">
