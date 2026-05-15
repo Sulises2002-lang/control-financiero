@@ -872,9 +872,85 @@ function Cierres({cls,ctas,movs,cierres,onCerrar,onBorrarUno,onBorrarTodos,C}){
     setNotas("");
   }
 
+  function descargarPDF(detalle){
+    const contenido=`
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          body{font-family:Arial,sans-serif;padding:30px;color:#1a1a1a;max-width:700px;margin:0 auto;}
+          h1{color:#1a3a5c;font-size:22px;margin-bottom:4px;}
+          h2{color:#1a3a5c;font-size:14px;font-weight:normal;margin-bottom:20px;}
+          .header{background:#1a3a5c;color:#fff;padding:20px;border-radius:10px;margin-bottom:20px;}
+          .header h1{color:#fff;margin:0 0 4px 0;}
+          .header .total{font-size:28px;font-weight:bold;color:#a5d6a7;margin:8px 0 0 0;}
+          .row{display:flex;justify-content:space-between;padding:10px 14px;border-radius:8px;margin-bottom:6px;}
+          .row.green{background:#e8f5e9;} .row.red{background:#fce4ec;} .row.gold{background:#fff8e1;} .row.blue{background:#e8f0fb;} .row.gray{background:#f5f5f5;}
+          .label{color:#666;font-size:13px;} .value{font-weight:bold;font-size:13px;}
+          .section{font-size:10px;color:#888;letter-spacing:2px;text-transform:uppercase;margin:16px 0 8px;}
+          table{width:100%;border-collapse:collapse;font-size:12px;}
+          th{background:#1a3a5c;color:#fff;padding:8px 10px;text-align:left;}
+          td{padding:8px 10px;border-bottom:1px solid #eee;}
+          tr:nth-child(even){background:#f9f9f9;}
+          .notas{background:#fff8e1;border-left:4px solid #f57f17;padding:12px;border-radius:8px;margin-bottom:16px;font-size:13px;}
+          .footer{margin-top:30px;padding-top:16px;border-top:1px solid #eee;font-size:11px;color:#aaa;text-align:center;}
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Cierre del Día — ${fmtDate(detalle.fecha)}</h1>
+          <div class="total">${fmt(detalle.totalEnCuentas)}</div>
+          <div style="font-size:12px;opacity:.7;margin-top:4px">Total en cuentas</div>
+        </div>
+
+        <div class="section">Resumen</div>
+        <div class="row green"><span class="label">📥 Ingresos del día</span><span class="value" style="color:#2e7d32">${fmt(detalle.ingresosDelDia)}</span></div>
+        <div class="row red"><span class="label">📤 Egresos del día</span><span class="value" style="color:#c62828">${fmt(detalle.egresosDelDia)}</span></div>
+        <div class="row gold"><span class="label">💸 Comisiones</span><span class="value" style="color:#f57f17">${fmt(detalle.comisionesDelDia)}</span></div>
+        <div class="row blue"><span class="label">💼 Dinero clientes</span><span class="value" style="color:#2e6da4">${fmt(detalle.dineroClientes)}</span></div>
+        <div class="row green"><span class="label">✅ Disponible real</span><span class="value" style="color:#2e7d32">${fmt(detalle.dineroDisponible)}</span></div>
+        <div class="row gray"><span class="label">📋 Movimientos</span><span class="value">${detalle.numeroMovimientos}</span></div>
+
+        ${detalle.notas?`<div class="section">Notas</div><div class="notas">${detalle.notas}</div>`:""}
+
+        ${detalle.saldosPorCuenta?.length>0?`
+        <div class="section">Saldos por cuenta</div>
+        <table>
+          <tr><th>Cuenta</th><th>Banco</th><th style="text-align:right">Saldo</th></tr>
+          ${detalle.saldosPorCuenta.map(c=>`<tr><td>${c.nombre}</td><td>${c.banco}</td><td style="text-align:right;font-weight:bold;color:${c.saldo>=0?"#2e7d32":"#c62828"}">${fmt(c.saldo)}</td></tr>`).join("")}
+        </table>`:""}
+
+        ${detalle.movimientosDelDia?.length>0?`
+        <div class="section">Movimientos del día</div>
+        <table>
+          <tr><th>Tipo</th><th>Concepto</th><th>Banco</th><th style="text-align:right">Monto</th><th style="text-align:right">Comisión</th></tr>
+          ${detalle.movimientosDelDia.map(m=>`
+            <tr>
+              <td>${m.tipo==="ingreso"?"📥":m.tipo==="egreso"?"📤":"⚖️"} ${m.tipo}</td>
+              <td>${m.concepto||"Sin concepto"}</td>
+              <td>${m.banco||"-"}</td>
+              <td style="text-align:right;font-weight:bold;color:${m.tipo==="egreso"?"#c62828":"#2e7d32"}">${fmt(m.montoFinal)}</td>
+              <td style="text-align:right;color:#f57f17">${m.comision>0?fmt(m.comision):"-"}</td>
+            </tr>`).join("")}
+        </table>`:""}
+
+        <div class="footer">Control Financiero · Generado el ${fmtDate(today())} · ${new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})}</div>
+      </body>
+      </html>
+    `;
+    const ventana=window.open("","_blank");
+    ventana.document.write(contenido);
+    ventana.document.close();
+    ventana.focus();
+    setTimeout(()=>ventana.print(),500);
+  }
+
   if(detalle)return(
     <div>
-      <button onClick={()=>setDetalle(null)} style={{padding:"9px 16px",borderRadius:9,border:"none",background:C.lgray,color:C.navy,fontWeight:"bold",fontSize:13,cursor:"pointer",marginBottom:14}}>← Volver</button>
+      <div style={{display:"flex",gap:8,marginBottom:14}}>
+        <button onClick={()=>setDetalle(null)} style={{flex:1,padding:"9px 16px",borderRadius:9,border:"none",background:C.lgray,color:C.navy,fontWeight:"bold",fontSize:13,cursor:"pointer"}}>← Volver</button>
+        <button onClick={()=>descargarPDF(detalle)} style={{flex:1,padding:"9px 16px",borderRadius:9,border:"none",background:"#2e7d32",color:"#fff",fontWeight:"bold",fontSize:13,cursor:"pointer"}}>📄 Descargar PDF</button>
+      </div>
       <div style={{background:C.navy,borderRadius:14,padding:18,marginBottom:12,color:"#fff"}}>
         <div style={{fontSize:10,opacity:.6,letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Cierre del día</div>
         <div style={{fontSize:22,fontWeight:"bold"}}>{fmtDate(detalle.fecha)}</div>
