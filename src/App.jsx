@@ -873,76 +873,145 @@ function Cierres({cls,ctas,movs,cierres,onCerrar,onBorrarUno,onBorrarTodos,C}){
   }
 
   function descargarPDF(detalle){
+    const movs = detalle.movimientosDelDia || [];
+
+    // Agrupar movimientos por banco
+    const bancosConMovs = BANCOS.map(banco => ({
+      banco,
+      movimientos: movs.filter(m => m.banco === banco),
+    })).filter(b => b.movimientos.length > 0);
+
+    // Movimientos sin banco (egresos directos, ajustes, sin cliente)
+    const sinBanco = movs.filter(m => !m.banco);
+
+    function tablaMovimientos(lista) {
+      if(lista.length === 0) return "<tr><td colspan='5' style='text-align:center;color:#aaa;padding:12px'>Sin movimientos</td></tr>";
+      return lista.map(m => `
+        <tr>
+          <td>${m.tipo==="ingreso"?"📥":m.tipo==="egreso"?"📤":m.tipo==="transferencia"?"🔄":"⚖️"} ${m.tipo.charAt(0).toUpperCase()+m.tipo.slice(1)}</td>
+          <td>${m.concepto||"Sin concepto"}</td>
+          <td>${m.esNomina?"🧾 Nómina":"💸 Transferencia"}</td>
+          <td style="text-align:right;font-weight:bold;color:${m.tipo==="egreso"?"#c62828":m.tipo==="transferencia"?"#6a1b9a":"#2e7d32"}">${fmt(m.montoFinal)}</td>
+          <td style="text-align:right;color:#f57f17">${m.comision>0?fmt(m.comision):"-"}</td>
+        </tr>
+      `).join("");
+    }
+
+    function subtotal(lista) {
+      const ing = lista.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0);
+      const eg  = lista.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0);
+      const com = lista.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.comision,0);
+      return `
+        <tr style="background:#f0f5fb;font-weight:bold;">
+          <td colspan="3">Subtotal</td>
+          <td style="text-align:right;color:#2e7d32">${fmt(ing - eg)}</td>
+          <td style="text-align:right;color:#f57f17">${fmt(com)}</td>
+        </tr>
+      `;
+    }
+
     const contenido=`
       <html>
       <head>
         <meta charset="UTF-8">
         <style>
-          body{font-family:Arial,sans-serif;padding:30px;color:#1a1a1a;max-width:700px;margin:0 auto;}
-          h1{color:#1a3a5c;font-size:22px;margin-bottom:4px;}
-          h2{color:#1a3a5c;font-size:14px;font-weight:normal;margin-bottom:20px;}
-          .header{background:#1a3a5c;color:#fff;padding:20px;border-radius:10px;margin-bottom:20px;}
-          .header h1{color:#fff;margin:0 0 4px 0;}
-          .header .total{font-size:28px;font-weight:bold;color:#a5d6a7;margin:8px 0 0 0;}
-          .row{display:flex;justify-content:space-between;padding:10px 14px;border-radius:8px;margin-bottom:6px;}
-          .row.green{background:#e8f5e9;} .row.red{background:#fce4ec;} .row.gold{background:#fff8e1;} .row.blue{background:#e8f0fb;} .row.gray{background:#f5f5f5;}
-          .label{color:#666;font-size:13px;} .value{font-weight:bold;font-size:13px;}
-          .section{font-size:10px;color:#888;letter-spacing:2px;text-transform:uppercase;margin:16px 0 8px;}
-          table{width:100%;border-collapse:collapse;font-size:12px;}
-          th{background:#1a3a5c;color:#fff;padding:8px 10px;text-align:left;}
+          body{font-family:Arial,sans-serif;padding:30px;color:#1a1a1a;max-width:750px;margin:0 auto;}
+          .header{background:#1a3a5c;color:#fff;padding:20px 24px;border-radius:10px;margin-bottom:24px;}
+          .header h1{color:#fff;margin:0 0 4px 0;font-size:20px;}
+          .header .total{font-size:26px;font-weight:bold;color:#a5d6a7;margin:8px 0 0 0;}
+          .resumen{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:24px;}
+          .card{padding:12px 14px;border-radius:8px;}
+          .card.green{background:#e8f5e9;} .card.red{background:#fce4ec;} .card.gold{background:#fff8e1;} .card.blue{background:#e8f0fb;}
+          .card-label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;}
+          .card-value{font-size:16px;font-weight:bold;}
+          .section{font-size:11px;color:#1a3a5c;letter-spacing:2px;text-transform:uppercase;margin:20px 0 8px;padding-bottom:6px;border-bottom:2px solid #1a3a5c;font-weight:bold;}
+          .banco-header{background:#2e6da4;color:#fff;padding:8px 12px;border-radius:6px 6px 0 0;font-weight:bold;font-size:13px;margin-top:16px;}
+          table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;}
+          th{background:#1a3a5c;color:#fff;padding:8px 10px;text-align:left;font-size:11px;}
           td{padding:8px 10px;border-bottom:1px solid #eee;}
-          tr:nth-child(even){background:#f9f9f9;}
-          .notas{background:#fff8e1;border-left:4px solid #f57f17;padding:12px;border-radius:8px;margin-bottom:16px;font-size:13px;}
+          tr:nth-child(even) td{background:#f9f9f9;}
+          .notas{background:#fff8e1;border-left:4px solid #f57f17;padding:12px 14px;border-radius:8px;margin-bottom:16px;font-size:13px;}
           .footer{margin-top:30px;padding-top:16px;border-top:1px solid #eee;font-size:11px;color:#aaa;text-align:center;}
+          .total-row td{background:#1a3a5c!important;color:#fff;font-weight:bold;padding:10px;}
+          @media print{body{padding:15px;}}
         </style>
       </head>
       <body>
         <div class="header">
-          <h1>Cierre del Día — ${fmtDate(detalle.fecha)}</h1>
+          <h1>Cierre del Día</h1>
+          <div style="font-size:13px;opacity:.8;margin-bottom:8px">${fmtDate(detalle.fecha)}</div>
           <div class="total">${fmt(detalle.totalEnCuentas)}</div>
-          <div style="font-size:12px;opacity:.7;margin-top:4px">Total en cuentas</div>
+          <div style="font-size:12px;opacity:.6;margin-top:4px">Total en cuentas</div>
         </div>
 
-        <div class="section">Resumen</div>
-        <div class="row green"><span class="label">📥 Ingresos del día</span><span class="value" style="color:#2e7d32">${fmt(detalle.ingresosDelDia)}</span></div>
-        <div class="row red"><span class="label">📤 Egresos del día</span><span class="value" style="color:#c62828">${fmt(detalle.egresosDelDia)}</span></div>
-        <div class="row gold"><span class="label">💸 Comisiones</span><span class="value" style="color:#f57f17">${fmt(detalle.comisionesDelDia)}</span></div>
-        <div class="row blue"><span class="label">💼 Dinero clientes</span><span class="value" style="color:#2e6da4">${fmt(detalle.dineroClientes)}</span></div>
-        <div class="row green"><span class="label">✅ Disponible real</span><span class="value" style="color:#2e7d32">${fmt(detalle.dineroDisponible)}</span></div>
-        <div class="row gray"><span class="label">📋 Movimientos</span><span class="value">${detalle.numeroMovimientos}</span></div>
+        <!-- Resumen -->
+        <div class="section">Resumen del día</div>
+        <div class="resumen">
+          <div class="card green"><div class="card-label">📥 Ingresos</div><div class="card-value" style="color:#2e7d32">${fmt(detalle.ingresosDelDia)}</div></div>
+          <div class="card red"><div class="card-label">📤 Egresos</div><div class="card-value" style="color:#c62828">${fmt(detalle.egresosDelDia)}</div></div>
+          <div class="card gold"><div class="card-label">💸 Comisiones</div><div class="card-value" style="color:#f57f17">${fmt(detalle.comisionesDelDia)}</div></div>
+          <div class="card blue"><div class="card-label">💼 Dinero clientes</div><div class="card-value" style="color:#2e6da4">${fmt(detalle.dineroClientes)}</div></div>
+          <div class="card green"><div class="card-label">✅ Disponible real</div><div class="card-value" style="color:#2e7d32">${fmt(detalle.dineroDisponible)}</div></div>
+          <div class="card" style="background:#f5f5f5"><div class="card-label">📋 Movimientos</div><div class="card-value">${detalle.numeroMovimientos}</div></div>
+        </div>
 
-        ${detalle.notas?`<div class="section">Notas</div><div class="notas">${detalle.notas}</div>`:""}
+        ${detalle.notas?`<div class="notas">📝 ${detalle.notas}</div>`:""}
 
-        ${detalle.saldosPorCuenta?.length>0?`
+        <!-- Saldos por cuenta -->
         <div class="section">Saldos por cuenta</div>
         <table>
           <tr><th>Cuenta</th><th>Banco</th><th style="text-align:right">Saldo</th></tr>
-          ${detalle.saldosPorCuenta.map(c=>`<tr><td>${c.nombre}</td><td>${c.banco}</td><td style="text-align:right;font-weight:bold;color:${c.saldo>=0?"#2e7d32":"#c62828"}">${fmt(c.saldo)}</td></tr>`).join("")}
-        </table>`:""}
+          ${detalle.saldosPorCuenta.map(c=>`
+            <tr><td><b>${c.nombre}</b></td><td>${c.banco}</td>
+            <td style="text-align:right;font-weight:bold;color:${c.saldo>=0?"#2e7d32":"#c62828"}">${fmt(c.saldo)}</td></tr>
+          `).join("")}
+        </table>
 
-        ${detalle.movimientosDelDia?.length>0?`
-        <div class="section">Movimientos del día</div>
-        <table>
-          <tr><th>Tipo</th><th>Concepto</th><th>Banco</th><th style="text-align:right">Monto</th><th style="text-align:right">Comisión</th></tr>
-          ${detalle.movimientosDelDia.map(m=>`
+        <!-- Movimientos por banco -->
+        <div class="section">Movimientos por banco</div>
+
+        ${bancosConMovs.map(({banco, movimientos}) => `
+          <div class="banco-header">🏦 ${banco}</div>
+          <table>
             <tr>
-              <td>${m.tipo==="ingreso"?"📥":m.tipo==="egreso"?"📤":"⚖️"} ${m.tipo}</td>
-              <td>${m.concepto||"Sin concepto"}</td>
-              <td>${m.banco||"-"}</td>
-              <td style="text-align:right;font-weight:bold;color:${m.tipo==="egreso"?"#c62828":"#2e7d32"}">${fmt(m.montoFinal)}</td>
-              <td style="text-align:right;color:#f57f17">${m.comision>0?fmt(m.comision):"-"}</td>
-            </tr>`).join("")}
-        </table>`:""}
+              <th>Tipo</th>
+              <th>Concepto</th>
+              <th>Operación</th>
+              <th style="text-align:right">Monto</th>
+              <th style="text-align:right">Comisión</th>
+            </tr>
+            ${tablaMovimientos(movimientos)}
+            ${subtotal(movimientos)}
+          </table>
+        `).join("")}
 
-        <div class="footer">Control Financiero · Generado el ${fmtDate(today())} · ${new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})}</div>
+        ${sinBanco.length > 0 ? `
+          <div class="banco-header" style="background:#888">⚖️ Sin banco (ajustes / transferencias)</div>
+          <table>
+            <tr><th>Tipo</th><th>Concepto</th><th>Operación</th><th style="text-align:right">Monto</th><th style="text-align:right">Comisión</th></tr>
+            ${tablaMovimientos(sinBanco)}
+          </table>
+        ` : ""}
+
+        <!-- Total general -->
+        <table style="margin-top:16px">
+          <tr class="total-row">
+            <td colspan="3">TOTAL GENERAL</td>
+            <td style="text-align:right">${fmt(detalle.ingresosDelDia - detalle.egresosDelDia)}</td>
+            <td style="text-align:right">${fmt(detalle.comisionesDelDia)}</td>
+          </tr>
+        </table>
+
+        <div class="footer">Control Financiero · Generado el ${fmtDate(today())} a las ${new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})}</div>
       </body>
       </html>
     `;
+
     const ventana=window.open("","_blank");
     ventana.document.write(contenido);
     ventana.document.close();
     ventana.focus();
-    setTimeout(()=>ventana.print(),500);
+    setTimeout(()=>ventana.print(),600);
   }
 
   if(detalle)return(
