@@ -37,12 +37,19 @@ function saldoCuenta(c,movs){
   const cm=movs.filter(m=>m.cuentaId===c.id);
   const transferSalida=movs.filter(m=>m.tipo==="transferencia"&&m.cuentaOrigenId===c.id).reduce((a,m)=>a+m.montoFinal,0);
   const transferEntrada=movs.filter(m=>m.tipo==="transferencia"&&m.cuentaDestinoId===c.id).reduce((a,m)=>a+m.montoFinal,0);
-  return(c.saldoInicial||0)+cm.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0)-cm.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0)+cm.filter(m=>m.tipo==="ajuste").reduce((a,m)=>a+m.montoFinal,0)-transferSalida+transferEntrada;
+  // Las comisiones SE QUEDAN en la cuenta — solo se restan del saldo del cliente
+  return(c.saldoInicial||0)
+    +cm.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoOriginal,0) // monto completo, sin restar comisión
+    -cm.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0)
+    +cm.filter(m=>m.tipo==="ajuste").reduce((a,m)=>a+m.montoFinal,0)
+    -transferSalida+transferEntrada;
 }
 function resumenTotal(cls,ctas,movs){
   const total=ctas.reduce((a,c)=>a+saldoCuenta(c,movs),0);
+  // Dinero de clientes = suma de saldos de clientes (lo que les pertenece a ellos)
   const dineroC=cls.reduce((a,c)=>a+Math.max(saldoCliente(c,movs),0),0);
-  const ing=movs.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0);
+  // Disponible real = total en cuentas - dinero de clientes = tus comisiones + otros ingresos sin cliente
+  const ing=movs.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoOriginal,0);
   const eg=movs.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0);
   const com=movs.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.comision,0);
   return{total,dineroC,disponible:total-dineroC,ing,eg,com};
