@@ -868,83 +868,158 @@ function Cierres({cls,ctas,movs,cierres,onCerrar,onBorrarUno,onBorrarTodos,C}){
   function cerrar(){
     if(!window.confirm("¿Cerrar el día? Se guardará un snapshot fijo."))return;
     const hoy=today();const mh=movs.filter(m=>m.fecha===hoy);
-    onCerrar({id:uid(),fecha:hoy,totalEnCuentas:r.total,dineroClientes:r.dineroC,dineroDisponible:r.disponible,ingresosDelDia:mh.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0),egresosDelDia:mh.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0),comisionesDelDia:mh.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.comision,0),numeroMovimientos:mh.length,movimientosDelDia:mh,saldosPorCuenta:ctas.map(c=>({nombre:c.nombre,banco:c.banco,saldo:saldoCuenta(c,movs)})),notas,fechaCreacion:new Date().toISOString()});
+    // Enriquecer movimientos con info de cuenta para el PDF
+    const mhEnriquecidos = mh.map(m => {
+      const ctaOrigen = ctas.find(c=>c.id===m.cuentaOrigenId);
+      const ctaDestino = ctas.find(c=>c.id===m.cuentaDestinoId);
+      const cta = ctas.find(c=>c.id===m.cuentaId);
+      return {
+        ...m,
+        _cuentaNombre: cta?.nombre || "",
+        _cuentaBanco: cta?.banco || m.banco || "",
+        _cuentaOrigenNombre: ctaOrigen?.nombre || "",
+        _cuentaOrigenBanco: ctaOrigen?.banco || "",
+        _cuentaDestinoNombre: ctaDestino?.nombre || "",
+        _cuentaDestinoBanco: ctaDestino?.banco || "",
+      };
+    });
+    onCerrar({id:uid(),fecha:hoy,totalEnCuentas:r.total,dineroClientes:r.dineroC,dineroDisponible:r.disponible,ingresosDelDia:mhEnriquecidos.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0),egresosDelDia:mhEnriquecidos.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0),comisionesDelDia:mhEnriquecidos.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.comision,0),numeroMovimientos:mhEnriquecidos.length,movimientosDelDia:mhEnriquecidos,saldosPorCuenta:ctas.map(c=>({nombre:c.nombre,banco:c.banco,saldo:saldoCuenta(c,movs),_id:c.id})),notas,fechaCreacion:new Date().toISOString()});
     setNotas("");
   }
 
   function descargarPDF(detalle){
     const movs = detalle.movimientosDelDia || [];
+    const cuentas = detalle.saldosPorCuenta || [];
 
-    // Agrupar movimientos por banco
-    const bancosConMovs = BANCOS.map(banco => ({
-      banco,
-      movimientos: movs.filter(m => m.banco === banco),
-    })).filter(b => b.movimientos.length > 0);
+    // Agrupar por cuenta — ingresos por m.banco, egresos/ajustes por m.cuentaId
+    // Para el PDF construimos una lista de movimientos por cuenta
+    const movsPorCuenta = cuentas.map(cta => {
+      const ctaId = detalle.saldosPorCuenta.indexOf(cta); // usamos nombre como clave
+      const nombre = cta.nombre;
 
-    // Movimientos sin banco (egresos directos, ajustes, sin cliente)
-    const sinBanco = movs.filter(m => !m.banco);
+      // Ingresos que tienen este banco asignado
+      const ingresos = movs.filter(m => m.tipo === "ingreso" && m.banco === nombre);
 
-    function tablaMovimientos(lista) {
-      if(lista.length === 0) return "<tr><td colspan='5' style='text-align:center;color:#aaa;padding:12px'>Sin movimientos</td></tr>";
-      return lista.map(m => `
-        <tr>
-          <td>${m.tipo==="ingreso"?"📥":m.tipo==="egreso"?"📤":m.tipo==="transferencia"?"🔄":"⚖️"} ${m.tipo.charAt(0).toUpperCase()+m.tipo.slice(1)}</td>
-          <td>${m.concepto||"Sin concepto"}</td>
-          <td>${m.esNomina?"🧾 Nómina":"💸 Transferencia"}</td>
-          <td style="text-align:right;font-weight:bold;color:${m.tipo==="egreso"?"#c62828":m.tipo==="transferencia"?"#6a1b9a":"#2e7d32"}">${fmt(m.montoFinal)}</td>
-          <td style="text-align:right;color:#f57f17">${m.comision>0?fmt(m.comision):"-"}</td>
-        </tr>
-      `).join("");
-    }
+      // Egresos y ajustes que pertenecen a esta cuenta por nombre
+      const egresosAjustes = movs.filter(m =>
+        (m.tipo === "egreso" || m.tipo === "ajuste") &&
+        detalle.saldosPorCuenta.findIndex(c => c.nombre === nombre) >= 0 &&
+        m._cuentaNombre === nombre
+      );
 
-    function subtotal(lista) {
-      const ing = lista.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0);
-      const eg  = lista.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0);
-      const com = lista.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.comision,0);
+      // Transferencias donde esta cuenta es origen (egreso) o destino (ingreso)
+      const transferenciasSalida = movs.filter(m =>
+        m.tipo === "transferencia" && m._cuentaOrigenNombre === nombre
+      ).map(m => ({...m, _transferenciaDireccion: "salida"}));
+
+      const transferenciasEntrada = movs.filter(m =>
+        m.tipo === "transferencia" && m._cuentaDestinoNombre === nombre
+      ).map(m => ({...m, _transferenciaDireccion: "entrada"}));
+
+      return {
+        nombre,
+        banco: cta.banco,
+        saldo: cta.saldo,
+        movimientos: [...ingresos, ...egresosAjustes, ...transferenciasSalida, ...transferenciasEntrada]
+      };
+    });
+
+    // Fallback: agrupar por banco del movimiento o cuenta
+    const bancosAgrupados = BANCOS.map(banco => {
+      const ingresos = movs.filter(m => m.tipo === "ingreso" && m.banco === banco);
+      const egresos  = movs.filter(m => (m.tipo === "egreso" || m.tipo === "ajuste") && m._cuentaBanco === banco);
+      const transOut = movs.filter(m => m.tipo === "transferencia" && m._cuentaOrigenBanco === banco)
+                           .map(m => ({...m, _dir: "salida"}));
+      const transIn  = movs.filter(m => m.tipo === "transferencia" && m._cuentaDestinoBanco === banco)
+                           .map(m => ({...m, _dir: "entrada"}));
+      return { banco, movimientos: [...ingresos, ...egresos, ...transOut, ...transIn] };
+    }).filter(b => b.movimientos.length > 0);
+
+    // Si no hay info de banco en egresos, agrupar por cuenta
+    const cuentasAgrupadas = cuentas.map(cta => {
+      const ing = movs.filter(m => m.tipo === "ingreso" && m.banco === cta.nombre);
+      const eg  = movs.filter(m => (m.tipo === "egreso" || m.tipo === "ajuste") && m.cuentaId === cta._id);
+      const tOut = movs.filter(m => m.tipo === "transferencia" && m.cuentaOrigenId === cta._id)
+                       .map(m => ({...m, _dir: "salida"}));
+      const tIn  = movs.filter(m => m.tipo === "transferencia" && m.cuentaDestinoId === cta._id)
+                       .map(m => ({...m, _dir: "entrada"}));
+      return { nombre: cta.nombre, banco: cta.banco, saldo: cta.saldo, movimientos: [...ing, ...eg, ...tOut, ...tIn] };
+    }).filter(c => c.movimientos.length > 0);
+
+    function filaMovimiento(m) {
+      const esTransf = m.tipo === "transferencia";
+      const dir = m._dir;
+      const esEntrada = dir === "entrada";
+      const esSalida = dir === "salida";
+      const tipo = esTransf
+        ? (esEntrada ? "📥 Transferencia entrada" : "📤 Transferencia salida")
+        : m.tipo === "ingreso" ? "📥 Ingreso"
+        : m.tipo === "egreso"  ? "📤 Egreso"
+        : "⚖️ Ajuste";
+      const color = esTransf
+        ? (esEntrada ? "#2e7d32" : "#c62828")
+        : m.tipo === "ingreso" ? "#2e7d32"
+        : m.tipo === "egreso"  ? "#c62828"
+        : "#f57f17";
+      const signo = esTransf ? (esEntrada ? "+" : "−") : m.tipo === "ingreso" ? "+" : "−";
       return `
-        <tr style="background:#f0f5fb;font-weight:bold;">
-          <td colspan="3">Subtotal</td>
-          <td style="text-align:right;color:#2e7d32">${fmt(ing - eg)}</td>
-          <td style="text-align:right;color:#f57f17">${fmt(com)}</td>
-        </tr>
-      `;
+        <tr>
+          <td>${tipo}</td>
+          <td>${m.concepto || "Sin concepto"}</td>
+          <td>${m.esNomina ? "🧾 Nómina" : esTransf ? "🔄 Interna" : "💸 Transferencia"}</td>
+          <td style="text-align:right;font-weight:bold;color:${color}">${signo}${fmt(m.montoFinal)}</td>
+          <td style="text-align:right;color:#f57f17">${!esTransf && m.comision > 0 ? fmt(m.comision) : "-"}</td>
+        </tr>`;
     }
 
-    const contenido=`
+    function subtotalSeccion(movimientos) {
+      const ing = movimientos.filter(m => m.tipo === "ingreso").reduce((a, m) => a + m.montoFinal, 0);
+      const eg  = movimientos.filter(m => m.tipo === "egreso" || m.tipo === "ajuste").reduce((a, m) => a + m.montoFinal, 0);
+      const tOut= movimientos.filter(m => m.tipo === "transferencia" && m._dir === "salida").reduce((a, m) => a + m.montoFinal, 0);
+      const tIn = movimientos.filter(m => m.tipo === "transferencia" && m._dir === "entrada").reduce((a, m) => a + m.montoFinal, 0);
+      const com = movimientos.filter(m => m.tipo === "ingreso").reduce((a, m) => a + m.comision, 0);
+      const neto = ing + tIn - eg - tOut;
+      return `
+        <tr style="background:#1a3a5c;color:#fff;font-weight:bold;">
+          <td colspan="3">Subtotal</td>
+          <td style="text-align:right;color:${neto >= 0 ? "#a5d6a7" : "#ef9a9a"}">${neto >= 0 ? "+" : ""}${fmt(neto)}</td>
+          <td style="text-align:right;color:#fff176">${fmt(com)}</td>
+        </tr>`;
+    }
+
+    const contenido = `
       <html>
       <head>
         <meta charset="UTF-8">
         <style>
           body{font-family:Arial,sans-serif;padding:30px;color:#1a1a1a;max-width:750px;margin:0 auto;}
           .header{background:#1a3a5c;color:#fff;padding:20px 24px;border-radius:10px;margin-bottom:24px;}
-          .header h1{color:#fff;margin:0 0 4px 0;font-size:20px;}
-          .header .total{font-size:26px;font-weight:bold;color:#a5d6a7;margin:8px 0 0 0;}
-          .resumen{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:24px;}
+          .header .total{font-size:28px;font-weight:bold;color:#a5d6a7;margin:8px 0 0 0;}
+          .resumen{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px;}
           .card{padding:12px 14px;border-radius:8px;}
-          .card.green{background:#e8f5e9;} .card.red{background:#fce4ec;} .card.gold{background:#fff8e1;} .card.blue{background:#e8f0fb;}
+          .card.green{background:#e8f5e9;} .card.red{background:#fce4ec;} .card.gold{background:#fff8e1;} .card.blue{background:#e8f0fb;} .card.gray{background:#f5f5f5;}
           .card-label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;}
-          .card-value{font-size:16px;font-weight:bold;}
+          .card-value{font-size:15px;font-weight:bold;}
           .section{font-size:11px;color:#1a3a5c;letter-spacing:2px;text-transform:uppercase;margin:20px 0 8px;padding-bottom:6px;border-bottom:2px solid #1a3a5c;font-weight:bold;}
-          .banco-header{background:#2e6da4;color:#fff;padding:8px 12px;border-radius:6px 6px 0 0;font-weight:bold;font-size:13px;margin-top:16px;}
-          table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:0;}
+          .cuenta-header{background:#2e6da4;color:#fff;padding:9px 14px;border-radius:6px 6px 0 0;font-weight:bold;font-size:13px;margin-top:16px;}
+          table{width:100%;border-collapse:collapse;font-size:12px;}
           th{background:#1a3a5c;color:#fff;padding:8px 10px;text-align:left;font-size:11px;}
           td{padding:8px 10px;border-bottom:1px solid #eee;}
           tr:nth-child(even) td{background:#f9f9f9;}
           .notas{background:#fff8e1;border-left:4px solid #f57f17;padding:12px 14px;border-radius:8px;margin-bottom:16px;font-size:13px;}
           .footer{margin-top:30px;padding-top:16px;border-top:1px solid #eee;font-size:11px;color:#aaa;text-align:center;}
-          .total-row td{background:#1a3a5c!important;color:#fff;font-weight:bold;padding:10px;}
-          @media print{body{padding:15px;}}
+          .total-final td{background:#1a3a5c!important;color:#fff!important;font-weight:bold;padding:11px 10px;}
+          @media print{body{padding:10px;}}
         </style>
       </head>
       <body>
         <div class="header">
-          <h1>Cierre del Día</h1>
-          <div style="font-size:13px;opacity:.8;margin-bottom:8px">${fmtDate(detalle.fecha)}</div>
+          <div style="font-size:11px;opacity:.6;letter-spacing:2px;text-transform:uppercase">Cierre del Día</div>
+          <div style="font-size:18px;font-weight:bold;margin:4px 0">${fmtDate(detalle.fecha)}</div>
           <div class="total">${fmt(detalle.totalEnCuentas)}</div>
           <div style="font-size:12px;opacity:.6;margin-top:4px">Total en cuentas</div>
         </div>
 
-        <!-- Resumen -->
         <div class="section">Resumen del día</div>
         <div class="resumen">
           <div class="card green"><div class="card-label">📥 Ingresos</div><div class="card-value" style="color:#2e7d32">${fmt(detalle.ingresosDelDia)}</div></div>
@@ -952,51 +1027,39 @@ function Cierres({cls,ctas,movs,cierres,onCerrar,onBorrarUno,onBorrarTodos,C}){
           <div class="card gold"><div class="card-label">💸 Comisiones</div><div class="card-value" style="color:#f57f17">${fmt(detalle.comisionesDelDia)}</div></div>
           <div class="card blue"><div class="card-label">💼 Dinero clientes</div><div class="card-value" style="color:#2e6da4">${fmt(detalle.dineroClientes)}</div></div>
           <div class="card green"><div class="card-label">✅ Disponible real</div><div class="card-value" style="color:#2e7d32">${fmt(detalle.dineroDisponible)}</div></div>
-          <div class="card" style="background:#f5f5f5"><div class="card-label">📋 Movimientos</div><div class="card-value">${detalle.numeroMovimientos}</div></div>
+          <div class="card gray"><div class="card-label">📋 Movimientos</div><div class="card-value">${detalle.numeroMovimientos}</div></div>
         </div>
 
-        ${detalle.notas?`<div class="notas">📝 ${detalle.notas}</div>`:""}
+        ${detalle.notas ? `<div class="notas">📝 ${detalle.notas}</div>` : ""}
 
-        <!-- Saldos por cuenta -->
         <div class="section">Saldos por cuenta</div>
         <table>
-          <tr><th>Cuenta</th><th>Banco</th><th style="text-align:right">Saldo</th></tr>
-          ${detalle.saldosPorCuenta.map(c=>`
-            <tr><td><b>${c.nombre}</b></td><td>${c.banco}</td>
-            <td style="text-align:right;font-weight:bold;color:${c.saldo>=0?"#2e7d32":"#c62828"}">${fmt(c.saldo)}</td></tr>
-          `).join("")}
+          <tr><th>Cuenta</th><th>Banco</th><th style="text-align:right">Saldo final</th></tr>
+          ${cuentas.map(c => `
+            <tr>
+              <td><b>${c.nombre}</b></td>
+              <td>${c.banco}</td>
+              <td style="text-align:right;font-weight:bold;color:${c.saldo >= 0 ? "#2e7d32" : "#c62828"}">${fmt(c.saldo)}</td>
+            </tr>`).join("")}
         </table>
 
-        <!-- Movimientos por banco -->
-        <div class="section">Movimientos por banco</div>
-
-        ${bancosConMovs.map(({banco, movimientos}) => `
-          <div class="banco-header">🏦 ${banco}</div>
+        <div class="section">Movimientos por cuenta</div>
+        ${cuentasAgrupadas.map(({nombre, banco, movimientos}) => `
+          <div class="cuenta-header">🏦 ${nombre} — ${banco}</div>
           <table>
             <tr>
-              <th>Tipo</th>
-              <th>Concepto</th>
-              <th>Operación</th>
+              <th>Tipo</th><th>Concepto</th><th>Operación</th>
               <th style="text-align:right">Monto</th>
               <th style="text-align:right">Comisión</th>
             </tr>
-            ${tablaMovimientos(movimientos)}
-            ${subtotal(movimientos)}
+            ${movimientos.map(m => filaMovimiento(m)).join("")}
+            ${subtotalSeccion(movimientos)}
           </table>
         `).join("")}
 
-        ${sinBanco.length > 0 ? `
-          <div class="banco-header" style="background:#888">⚖️ Sin banco (ajustes / transferencias)</div>
-          <table>
-            <tr><th>Tipo</th><th>Concepto</th><th>Operación</th><th style="text-align:right">Monto</th><th style="text-align:right">Comisión</th></tr>
-            ${tablaMovimientos(sinBanco)}
-          </table>
-        ` : ""}
-
-        <!-- Total general -->
-        <table style="margin-top:16px">
-          <tr class="total-row">
-            <td colspan="3">TOTAL GENERAL</td>
+        <table style="margin-top:20px">
+          <tr class="total-final">
+            <td colspan="3">TOTAL GENERAL DEL DÍA</td>
             <td style="text-align:right">${fmt(detalle.ingresosDelDia - detalle.egresosDelDia)}</td>
             <td style="text-align:right">${fmt(detalle.comisionesDelDia)}</td>
           </tr>
@@ -1007,11 +1070,11 @@ function Cierres({cls,ctas,movs,cierres,onCerrar,onBorrarUno,onBorrarTodos,C}){
       </html>
     `;
 
-    const ventana=window.open("","_blank");
+    const ventana = window.open("", "_blank");
     ventana.document.write(contenido);
     ventana.document.close();
     ventana.focus();
-    setTimeout(()=>ventana.print(),600);
+    setTimeout(() => ventana.print(), 600);
   }
 
   if(detalle)return(
