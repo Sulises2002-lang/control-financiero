@@ -859,36 +859,43 @@ function Reportes({cls,ctas,movs,C}){
   );
 }
 
-function Cierres({cls,ctas,movs,cierres,onCerrar,onBorrarUno,onBorrarTodos,C}){
+function Cierres({cls,ctas,movs,cierres,onCerrar,onBorrarUno,onBorrarTodos,C,todosMovs,todasCtas}){
   const inp2={width:"100%",padding:"9px 12px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:14,boxSizing:"border-box",outline:"none",fontFamily:"inherit",background:C.cardBg,color:C.text};
   const [detalle,setDetalle]=useState(null);
   const [notas,setNotas]=useState("");
   const r=resumenTotal(cls,ctas,movs);
 
-  function cerrar(){
-    if(!window.confirm("¿Cerrar el día? Se guardará un snapshot fijo."))return;
-    const hoy=today();const mh=movs.filter(m=>m.fecha===hoy);
-    // Enriquecer movimientos con info de cuenta para el PDF
-    const mhEnriquecidos = mh.map(m => {
-      const ctaOrigen = ctas.find(c=>c.id===m.cuentaOrigenId);
-      const ctaDestino = ctas.find(c=>c.id===m.cuentaDestinoId);
-      const cta = ctas.find(c=>c.id===m.cuentaId);
+  // Enriquecer movimientos con info de cuenta en tiempo real
+  function enriquecerMovs(fecha) {
+    const mh = (todosMovs||movs).filter(m=>m.fecha===fecha);
+    return mh.map(m => {
+      const ctaOrigen  = (todasCtas||ctas).find(c=>c.id===m.cuentaOrigenId);
+      const ctaDestino = (todasCtas||ctas).find(c=>c.id===m.cuentaDestinoId);
+      const cta        = (todasCtas||ctas).find(c=>c.id===m.cuentaId);
       return {
         ...m,
-        _cuentaNombre: cta?.nombre || "",
-        _cuentaBanco: cta?.banco || m.banco || "",
-        _cuentaOrigenNombre: ctaOrigen?.nombre || "",
-        _cuentaOrigenBanco: ctaOrigen?.banco || "",
-        _cuentaDestinoNombre: ctaDestino?.nombre || "",
-        _cuentaDestinoBanco: ctaDestino?.banco || "",
+        _cuentaNombre:       cta?.nombre        || m._cuentaNombre        || "",
+        _cuentaBanco:        cta?.banco          || m._cuentaBanco         || m.banco || "",
+        _cuentaOrigenNombre: ctaOrigen?.nombre   || m._cuentaOrigenNombre  || "",
+        _cuentaOrigenBanco:  ctaOrigen?.banco    || m._cuentaOrigenBanco   || "",
+        _cuentaDestinoNombre:ctaDestino?.nombre  || m._cuentaDestinoNombre || "",
+        _cuentaDestinoBanco: ctaDestino?.banco   || m._cuentaDestinoBanco  || "",
       };
     });
+  }
+
+  function cerrar(){
+    if(!window.confirm("¿Cerrar el día? Se guardará un snapshot fijo."))return;
+    const hoy=today();
+    const mhEnriquecidos=enriquecerMovs(hoy);
     onCerrar({id:uid(),fecha:hoy,totalEnCuentas:r.total,dineroClientes:r.dineroC,dineroDisponible:r.disponible,ingresosDelDia:mhEnriquecidos.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0),egresosDelDia:mhEnriquecidos.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0),comisionesDelDia:mhEnriquecidos.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.comision,0),numeroMovimientos:mhEnriquecidos.length,movimientosDelDia:mhEnriquecidos,saldosPorCuenta:ctas.map(c=>({nombre:c.nombre,banco:c.banco,saldo:saldoCuenta(c,movs),_id:c.id})),notas,fechaCreacion:new Date().toISOString()});
     setNotas("");
   }
 
   function descargarPDF(detalle){
-    const movs = detalle.movimientosDelDia || [];
+    // Enriquecer movimientos en tiempo real (por si el cierre es antiguo)
+    const movsEnriquecidos = enriquecerMovs(detalle.fecha);
+    const movs = movsEnriquecidos.length > 0 ? movsEnriquecidos : (detalle.movimientosDelDia || []);
     const cuentas = detalle.saldosPorCuenta || [];
 
     // Agrupar por cuenta — ingresos por m.banco, egresos/ajustes por m.cuentaId
@@ -1193,7 +1200,7 @@ export default function App(){
         {tab==="clientes"&&<Clientes cls={cls} movs={movs} onAdd={c=>setCls(p=>[...p,c])} onEdit={c=>setCls(p=>p.map(x=>x.id===c.id?c:x))} onDel={id=>setCls(p=>p.filter(x=>x.id!==id))} C={C} />}
         {tab==="cuentas"&&<Cuentas ctas={ctas} movs={movs} onAdd={c=>setCtas(p=>[...p,c])} onEdit={c=>setCtas(p=>p.map(x=>x.id===c.id?c:x))} onDel={id=>setCtas(p=>p.filter(x=>x.id!==id))} onConciliar={m=>setMovs(p=>[...p,m])} C={C} />}
         {tab==="reportes"&&<Reportes cls={cls} ctas={ctas} movs={movs} C={C} />}
-        {tab==="cierres"&&<Cierres cls={cls} ctas={ctas} movs={movs} cierres={cierres} onCerrar={c=>setCierres(p=>[...p,c])} onBorrarUno={id=>setCierres(p=>p.filter(x=>x.id!==id))} onBorrarTodos={()=>setCierres([])} C={C} />}
+        {tab==="cierres"&&<Cierres cls={cls} ctas={ctas} movs={movs} cierres={cierres} onCerrar={c=>setCierres(p=>[...p,c])} onBorrarUno={id=>setCierres(p=>p.filter(x=>x.id!==id))} onBorrarTodos={()=>setCierres([])} C={C} todosMovs={movs} todasCtas={ctas} />}
       </div>
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.cardBg,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:20,boxShadow:"0 -2px 8px rgba(0,0,0,0.06)",overflowX:"auto"}}>
         {TABS.map(t=>(
