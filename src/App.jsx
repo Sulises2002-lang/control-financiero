@@ -32,7 +32,11 @@ function calcMov(monto,tipo,cliente,banco,esNomina){
 }
 function saldoCliente(c,movs){
   const cm=movs.filter(m=>m.clienteId===c.id);
-  return(c.saldoInicial||0)+cm.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0)-cm.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0)-cm.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.comision,0)+cm.filter(m=>m.tipo==="ajuste").reduce((a,m)=>a+m.montoFinal,0);
+  // montoFinal ya tiene descontada la comisión — no restar de nuevo
+  return(c.saldoInicial||0)
+    +cm.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0)
+    -cm.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0)
+    +cm.filter(m=>m.tipo==="ajuste").reduce((a,m)=>a+m.montoFinal,0);
 }
 function saldoCuenta(c,movs){
   const cm=movs.filter(m=>m.cuentaId===c.id);
@@ -47,12 +51,11 @@ function saldoCuenta(c,movs){
 }
 function resumenTotal(cls,ctas,movs){
   const total=ctas.reduce((a,c)=>a+saldoCuenta(c,movs),0);
-  // Dinero de clientes = suma de saldos de clientes (lo que les pertenece a ellos)
   const dineroC=cls.reduce((a,c)=>a+Math.max(saldoCliente(c,movs),0),0);
-  // Disponible real = total en cuentas - dinero de clientes = tus comisiones + otros ingresos sin cliente
   const ing=movs.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoOriginal,0);
   const eg=movs.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0);
   const com=movs.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.comision,0);
+  // Disponible real = lo que queda en cuentas menos lo que es de clientes
   return{total,dineroC,disponible:total-dineroC,ing,eg,com};
 }
 
