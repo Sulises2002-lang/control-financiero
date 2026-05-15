@@ -11,6 +11,7 @@ const fmt=n=>isNaN(n)?"$0.00":new Intl.NumberFormat("es-MX",{style:"currency",cu
 const fmtDate=d=>new Date(d+"T12:00:00").toLocaleDateString("es-MX",{day:"2-digit",month:"2-digit",year:"numeric"});
 const fmtShort=d=>new Date(d+"T12:00:00").toLocaleDateString("es-MX",{day:"2-digit",month:"short"});
 const today=()=>{const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;};
+const parseMonto=v=>parseFloat((v||"").toString().replace(/,/g,""))||0;
 const BANCOS=["Cruco Banorte","Cruco Afirme","Colpi Afirme"];
 const CATEGORIAS=["Operación","Nómina","Proveedor","Bancario"];
 const TIPO_META={ingreso:{emoji:"📥",bg:"#e8f5e9",color:"#2e7d32",label:"Ingreso"},egreso:{emoji:"📤",bg:"#fce4ec",color:"#c62828",label:"Egreso"},ajuste:{emoji:"⚖️",bg:"#fff8e1",color:"#f57f17",label:"Ajuste"},transferencia:{emoji:"🔄",bg:"#ede7f6",color:"#6a1b9a",label:"Transferencia"}};
@@ -21,7 +22,7 @@ const DARK={navy:"#90caf9",blue:"#64b5f6",lblue:"#1e2a3a",xblue:"#1a2233",green:
 
 // ══ LÓGICA ══
 function calcMov(monto,tipo,cliente,banco,esNomina){
-  const m=parseFloat(monto)||0;
+  const m=parseMonto(monto);
   if(tipo!=="ingreso"||!cliente||!banco)return{montoSinIVA:0,comision:0,montoFinal:m,pct:0};
   const config=(cliente.bancos||[]).find(b=>b.banco===banco);
   const pct=config?config.porcentaje:0;
@@ -154,7 +155,7 @@ function Modal({title,onClose,children,C}){
 
 function Calc({monto,tipo,cliente,banco,esNomina,C}){
   const c=useMemo(()=>calcMov(monto,tipo,cliente,banco,esNomina),[monto,tipo,cliente,banco,esNomina]);
-  if(!parseFloat(monto)||!banco||tipo!=="ingreso")return null;
+  if(!parseMonto(monto)||!banco||tipo!=="ingreso")return null;
   const config=(cliente?.bancos||[]).find(b=>b.banco===banco);
   if(!config)return<div style={{background:C.lgold,borderRadius:10,padding:"10px 14px",marginBottom:12,borderLeft:`4px solid ${C.gold}`}}><span style={{fontSize:12,color:C.gold}}>⚠️ {banco} no configurado para este cliente</span></div>;
   return(
@@ -187,7 +188,7 @@ function FormTransferencia({cuentas,ini,onSave,C}){
     if(!origenId)return setErr("Selecciona la cuenta origen.");
     if(!destinoId)return setErr("Selecciona la cuenta destino.");
     if(origenId===destinoId)return setErr("La cuenta origen y destino deben ser diferentes.");
-    const m=parseFloat(monto);
+    const m=parseMonto(monto);
     if(!m||m<=0)return setErr("El monto debe ser mayor a 0.");
     setErr("");
     onSave({
@@ -223,24 +224,24 @@ function FormTransferencia({cuentas,ini,onSave,C}){
       </select>
 
       {/* Preview */}
-      {origenId&&destinoId&&parseFloat(monto)>0&&(
+      {origenId&&destinoId&&parseMonto(monto)>0&&(
         <div style={{background:C.xblue,borderRadius:10,padding:"12px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
           <div style={{textAlign:"center",flex:1}}>
             <div style={{fontSize:11,color:C.gray}}>Sale de</div>
             <div style={{fontWeight:"bold",color:C.red,fontSize:13}}>{origen?.nombre}</div>
-            <div style={{fontSize:16,color:C.red}}>− {fmt(parseFloat(monto))}</div>
+            <div style={{fontSize:16,color:C.red}}>− {fmt(parseMonto(monto))}</div>
           </div>
           <div style={{fontSize:24}}>→</div>
           <div style={{textAlign:"center",flex:1}}>
             <div style={{fontSize:11,color:C.gray}}>Llega a</div>
             <div style={{fontWeight:"bold",color:C.green,fontSize:13}}>{destino?.nombre}</div>
-            <div style={{fontSize:16,color:C.green}}>+ {fmt(parseFloat(monto))}</div>
+            <div style={{fontSize:16,color:C.green}}>+ {fmt(parseMonto(monto))}</div>
           </div>
         </div>
       )}
 
       <span style={lbl2}>Monto ($) *</span>
-      <input inputMode="decimal" placeholder="0.00" value={monto} onChange={e=>setMonto(e.target.value)} style={{...inp2,fontSize:18,marginBottom:12}} />
+      <input type="text" inputMode="decimal" placeholder="Ej: 10,234.20" value={monto} onChange={e=>setMonto(e.target.value)} style={{...inp2,fontSize:18,marginBottom:12}} />
 
       <span style={lbl2}>Concepto</span>
       <input value={concepto} onChange={e=>setConcepto(e.target.value)} style={{...inp2,marginBottom:12}} />
@@ -361,11 +362,11 @@ function FormMov({clientes,cuentas,ini,onSave,clientesRecientes,C}){
 
   function guardar(){
     if(!cuentaId)return setErr("Selecciona una cuenta.");
-    const m=parseFloat(monto);
+    const m=parseMonto(monto);
     if(!m||m<=0)return setErr("El monto debe ser mayor a 0.");
     if(tipo==="ingreso"&&clienteId&&!banco)return setErr("Selecciona el banco de origen.");
     setErr("");
-    onSave({id:ini?.id||uid(),tipo,clienteId:clienteId||null,cuentaId,banco:banco||null,esNomina,concepto,categoria,notas,fecha,estado,montoOriginal:m,...cal,historial:ini?.historial||[],revisado:ini?.revisado||false});
+    onSave({id:ini?.id||uid(),tipo,clienteId:clienteId||null,cuentaId,banco:banco||null,esNomina,concepto,categoria,notas,fecha,estado,montoOriginal:m,...calcMov(monto,tipo,cliente,banco,esNomina),historial:ini?.historial||[],revisado:ini?.revisado||false});
   }
 
   return(
@@ -397,7 +398,7 @@ function FormMov({clientes,cuentas,ini,onSave,clientesRecientes,C}){
         </div>
       </>}
       <span style={lbl2}>Monto ($) *</span>
-      <input inputMode="decimal" placeholder="0.00" value={monto} onChange={e=>setMonto(e.target.value)} style={{...inp2,fontSize:18,marginBottom:12}} />
+      <input type="text" inputMode="decimal" placeholder="Ej: 10,234.20" value={monto} onChange={e=>setMonto(e.target.value)} style={{...inp2,fontSize:18,marginBottom:12}} />
       <Calc monto={monto} tipo={tipo} cliente={cliente} banco={banco} esNomina={esNomina} C={C} />
       <span style={lbl2}>Concepto</span>
       <input value={concepto} onChange={e=>setConcepto(e.target.value)} placeholder="Ej: Pago factura marzo" style={{...inp2,marginBottom:12}} />
@@ -898,59 +899,31 @@ function Cierres({cls,ctas,movs,cierres,onCerrar,onBorrarUno,onBorrarTodos,C,tod
     const movs = movsEnriquecidos.length > 0 ? movsEnriquecidos : (detalle.movimientosDelDia || []);
     const cuentas = detalle.saldosPorCuenta || [];
 
-    // Agrupar por cuenta — ingresos por m.banco, egresos/ajustes por m.cuentaId
-    // Para el PDF construimos una lista de movimientos por cuenta
-    const movsPorCuenta = cuentas.map(cta => {
-      const ctaId = detalle.saldosPorCuenta.indexOf(cta); // usamos nombre como clave
+    // Agrupar TODOS los movimientos por cuenta (usando _cuentaNombre)
+    const cuentasAgrupadas = cuentas.map(cta => {
       const nombre = cta.nombre;
 
-      // Ingresos que tienen este banco asignado
-      const ingresos = movs.filter(m => m.tipo === "ingreso" && m.banco === nombre);
-
-      // Egresos y ajustes que pertenecen a esta cuenta por nombre
-      const egresosAjustes = movs.filter(m =>
-        (m.tipo === "egreso" || m.tipo === "ajuste") &&
-        detalle.saldosPorCuenta.findIndex(c => c.nombre === nombre) >= 0 &&
+      // Ingresos y egresos registrados en esta cuenta
+      const movsDeEstaCuenta = movs.filter(m =>
+        (m.tipo === "ingreso" || m.tipo === "egreso" || m.tipo === "ajuste") &&
         m._cuentaNombre === nombre
       );
 
-      // Transferencias donde esta cuenta es origen (egreso) o destino (ingreso)
-      const transferenciasSalida = movs.filter(m =>
-        m.tipo === "transferencia" && m._cuentaOrigenNombre === nombre
-      ).map(m => ({...m, _transferenciaDireccion: "salida"}));
+      // Transferencias donde esta cuenta es origen (sale) o destino (entra)
+      const transOut = movs
+        .filter(m => m.tipo === "transferencia" && m._cuentaOrigenNombre === nombre)
+        .map(m => ({...m, _dir: "salida"}));
 
-      const transferenciasEntrada = movs.filter(m =>
-        m.tipo === "transferencia" && m._cuentaDestinoNombre === nombre
-      ).map(m => ({...m, _transferenciaDireccion: "entrada"}));
+      const transIn = movs
+        .filter(m => m.tipo === "transferencia" && m._cuentaDestinoNombre === nombre)
+        .map(m => ({...m, _dir: "entrada"}));
 
       return {
         nombre,
         banco: cta.banco,
         saldo: cta.saldo,
-        movimientos: [...ingresos, ...egresosAjustes, ...transferenciasSalida, ...transferenciasEntrada]
+        movimientos: [...movsDeEstaCuenta, ...transOut, ...transIn]
       };
-    });
-
-    // Fallback: agrupar por banco del movimiento o cuenta
-    const bancosAgrupados = BANCOS.map(banco => {
-      const ingresos = movs.filter(m => m.tipo === "ingreso" && m.banco === banco);
-      const egresos  = movs.filter(m => (m.tipo === "egreso" || m.tipo === "ajuste") && m._cuentaBanco === banco);
-      const transOut = movs.filter(m => m.tipo === "transferencia" && m._cuentaOrigenBanco === banco)
-                           .map(m => ({...m, _dir: "salida"}));
-      const transIn  = movs.filter(m => m.tipo === "transferencia" && m._cuentaDestinoBanco === banco)
-                           .map(m => ({...m, _dir: "entrada"}));
-      return { banco, movimientos: [...ingresos, ...egresos, ...transOut, ...transIn] };
-    }).filter(b => b.movimientos.length > 0);
-
-    // Si no hay info de banco en egresos, agrupar por cuenta
-    const cuentasAgrupadas = cuentas.map(cta => {
-      const ing = movs.filter(m => m.tipo === "ingreso" && m.banco === cta.nombre);
-      const eg  = movs.filter(m => (m.tipo === "egreso" || m.tipo === "ajuste") && m.cuentaId === cta._id);
-      const tOut = movs.filter(m => m.tipo === "transferencia" && m.cuentaOrigenId === cta._id)
-                       .map(m => ({...m, _dir: "salida"}));
-      const tIn  = movs.filter(m => m.tipo === "transferencia" && m.cuentaDestinoId === cta._id)
-                       .map(m => ({...m, _dir: "entrada"}));
-      return { nombre: cta.nombre, banco: cta.banco, saldo: cta.saldo, movimientos: [...ing, ...eg, ...tOut, ...tIn] };
     }).filter(c => c.movimientos.length > 0);
 
     function filaMovimiento(m) {
