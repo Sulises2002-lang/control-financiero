@@ -10,7 +10,7 @@ const uid=()=>Math.random().toString(36).slice(2,10);
 const fmt=n=>isNaN(n)?"$0.00":new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN"}).format(n||0);
 const fmtDate=d=>new Date(d+"T12:00:00").toLocaleDateString("es-MX",{day:"2-digit",month:"2-digit",year:"numeric"});
 const fmtShort=d=>new Date(d+"T12:00:00").toLocaleDateString("es-MX",{day:"2-digit",month:"short"});
-const today=()=>new Date().toISOString().slice(0,10);
+const today=()=>{const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;};
 const BANCOS=["Cruco Banorte","Cruco Afirme","Colpi Afirme"];
 const CATEGORIAS=["Operación","Nómina","Proveedor","Bancario"];
 const TIPO_META={ingreso:{emoji:"📥",bg:"#e8f5e9",color:"#2e7d32",label:"Ingreso"},egreso:{emoji:"📤",bg:"#fce4ec",color:"#c62828",label:"Egreso"},ajuste:{emoji:"⚖️",bg:"#fff8e1",color:"#f57f17",label:"Ajuste"},transferencia:{emoji:"🔄",bg:"#ede7f6",color:"#6a1b9a",label:"Transferencia"}};
