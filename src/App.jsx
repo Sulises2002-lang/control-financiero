@@ -14,11 +14,26 @@ const today=()=>{const d=new Date();return`${d.getFullYear()}-${String(d.getMont
 const parseMonto=v=>parseFloat((v||"").toString().replace(/,/g,""))||0;
 const BANCOS=["Cruco Banorte","Cruco Afirme","Colpi Afirme"];
 const CATEGORIAS=["Operación","Nómina","Proveedor","Bancario"];
-const TIPO_META={ingreso:{emoji:"📥",bg:"#e8f5e9",color:"#2e7d32",label:"Ingreso"},egreso:{emoji:"📤",bg:"#fce4ec",color:"#c62828",label:"Egreso"},ajuste:{emoji:"⚖️",bg:"#fff8e1",color:"#f57f17",label:"Ajuste"},transferencia:{emoji:"🔄",bg:"#ede7f6",color:"#6a1b9a",label:"Transferencia"}};
+const TIPO_META={
+  ingreso:    {emoji:"↑", bg:"#f0faf4", color:"#16a34a", label:"Ingreso"},
+  egreso:     {emoji:"↓", bg:"#fff5f5", color:"#dc2626", label:"Egreso"},
+  ajuste:     {emoji:"~", bg:"#fafafa", color:"#71717a", label:"Ajuste"},
+  transferencia:{emoji:"⇄",bg:"#f5f5ff", color:"#4f46e5", label:"Transferencia"},
+};
 
 // ══ TEMA ══
-const LIGHT={navy:"#1a3a5c",blue:"#2e6da4",lblue:"#e8f0fb",xblue:"#f0f5fb",green:"#2e7d32",lgreen:"#e8f5e9",red:"#c62828",lred:"#fce4ec",gold:"#f57f17",lgold:"#fff8e1",gray:"#888",lgray:"#f5f5f5",border:"#e0e0e0",white:"#fff",bg:"#f7f3ee",cardBg:"#fff",text:"#1a1a1a"};
-const DARK={navy:"#90caf9",blue:"#64b5f6",lblue:"#1e2a3a",xblue:"#1a2233",green:"#81c784",lgreen:"#1a2e1a",red:"#ef9a9a",lred:"#2e1a1a",gold:"#ffd54f",lgold:"#2e2a1a",gray:"#aaa",lgray:"#2a2a2a",border:"#333",white:"#1e1e1e",bg:"#121212",cardBg:"#1e1e1e",text:"#f0f0f0"};
+const LIGHT={
+  navy:"#18181b", blue:"#4f46e5", lblue:"#eef2ff", xblue:"#f8fafc",
+  green:"#16a34a", lgreen:"#f0faf4", red:"#dc2626", lred:"#fff5f5",
+  gold:"#d97706", lgold:"#fffbeb", gray:"#71717a", lgray:"#f4f4f5",
+  border:"#e4e4e7", white:"#ffffff", bg:"#f9f9fb", cardBg:"#ffffff", text:"#18181b"
+};
+const DARK={
+  navy:"#e4e4e7", blue:"#818cf8", lblue:"#1e1b4b", xblue:"#18181b",
+  green:"#4ade80", lgreen:"#052e16", red:"#f87171", lred:"#1c0a0a",
+  gold:"#fbbf24", lgold:"#1c1107", gray:"#a1a1aa", lgray:"#27272a",
+  border:"#3f3f46", white:"#18181b", bg:"#09090b", cardBg:"#18181b", text:"#f4f4f5"
+};
 
 // ══ LÓGICA ══
 function calcMov(monto,tipo,cliente,banco,esNomina){
@@ -32,21 +47,20 @@ function calcMov(monto,tipo,cliente,banco,esNomina){
 }
 function saldoCliente(c,movs){
   const cm=movs.filter(m=>m.clienteId===c.id);
-  // montoFinal ya tiene descontada la comisión — no restar de nuevo
-  return(c.saldoInicial||0)
-    +cm.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0)
-    -cm.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0)
-    +cm.filter(m=>m.tipo==="ajuste").reduce((a,m)=>a+m.montoFinal,0);
+  const ing = cm.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0);
+  const eg  = cm.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0);
+  // Los ajustes pueden ser positivos o negativos (montoFinal puede ser negativo)
+  const aj  = cm.filter(m=>m.tipo==="ajuste").reduce((a,m)=>a+m.montoFinal,0);
+  return (c.saldoInicial||0) + ing - eg + aj;
 }
 function saldoCuenta(c,movs){
   const cm=movs.filter(m=>m.cuentaId===c.id);
   const transferSalida=movs.filter(m=>m.tipo==="transferencia"&&m.cuentaOrigenId===c.id).reduce((a,m)=>a+m.montoFinal,0);
   const transferEntrada=movs.filter(m=>m.tipo==="transferencia"&&m.cuentaDestinoId===c.id).reduce((a,m)=>a+m.montoFinal,0);
-  // Las comisiones SE QUEDAN en la cuenta — solo se restan del saldo del cliente
   return(c.saldoInicial||0)
-    +cm.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoOriginal,0) // monto completo, sin restar comisión
+    +cm.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoOriginal,0)
     -cm.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0)
-    +cm.filter(m=>m.tipo==="ajuste").reduce((a,m)=>a+m.montoFinal,0)
+    +cm.filter(m=>m.tipo==="ajuste"&&m.cuentaId).reduce((a,m)=>a+m.montoFinal,0) // solo ajustes con cuenta
     -transferSalida+transferEntrada;
 }
 function resumenTotal(cls,ctas,movs){
@@ -96,7 +110,7 @@ function Login({onLogin,C}){
   const titulo = mode==="login" ? "Ingresa tu PIN" : fase==="ingresar" ? "Crea tu PIN (4-6 dígitos)" : "Confirma tu PIN";
 
   return(
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
       <div style={{fontSize:44,marginBottom:8}}>🔐</div>
       <div style={{fontSize:22,fontWeight:"bold",color:C.navy,marginBottom:4}}>Control Financiero</div>
       <div style={{fontSize:13,color:C.gray,marginBottom:28,textAlign:"center"}}>{titulo}</div>
@@ -591,10 +605,14 @@ function CalculadoraRapida({clientes,C}){
   );
 }
 
-function Clientes({cls,movs,onAdd,onEdit,onDel,C}){
+function Clientes({cls,movs,onAdd,onEdit,onDel,onAddMov,C}){
   const inp2={width:"100%",padding:"9px 12px",borderRadius:8,border:`1.5px solid ${C.border}`,fontSize:14,boxSizing:"border-box",outline:"none",fontFamily:"inherit",background:C.cardBg,color:C.text};
   const [modal,setModal]=useState(null);
   const [detalle,setDetalle]=useState(null);
+  const [reajuste,setReajuste]=useState(false);
+  const [nuevoSaldo,setNuevoSaldo]=useState("");
+  const [cuentaAjuste,setCuentaAjuste]=useState("");
+  const [notaAjuste,setNotaAjuste]=useState("Reajuste de saldo");
 
   if(detalle){
     const c=detalle;
@@ -603,9 +621,35 @@ function Clientes({cls,movs,onAdd,onEdit,onDel,C}){
     const ing=cm.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0);
     const eg=cm.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0);
     const com=cm.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.comision,0);
+
+    function hacerReajuste(){
+      const nuevo = parseMonto(nuevoSaldo);
+      const diferencia = nuevo - s;
+      if(diferencia === 0) return;
+      onAddMov({
+        id: uid(),
+        tipo: "ajuste",
+        clienteId: c.id,
+        cuentaId: null, // ← sin cuenta, no afecta saldos bancarios
+        banco: null, esNomina: false,
+        concepto: notaAjuste || "Reajuste de saldo",
+        categoria: "Operación",
+        notas: `Saldo anterior: ${fmt(s)} → Saldo nuevo: ${fmt(nuevo)}`,
+        fecha: today(),
+        estado: "confirmado",
+        montoOriginal: diferencia,
+        montoSinIVA: 0, comision: 0,
+        montoFinal: diferencia,
+        pct: 0, historial: [], revisado: false,
+      });
+      setReajuste(false);
+      setNuevoSaldo("");
+      setNotaAjuste("Reajuste de saldo");
+    }
+
     return(
       <div>
-        <button onClick={()=>setDetalle(null)} style={{padding:"9px 16px",borderRadius:9,border:"none",background:C.lgray,color:C.navy,fontWeight:"bold",fontSize:13,cursor:"pointer",marginBottom:14}}>← Volver</button>
+        <button onClick={()=>{setDetalle(null);setReajuste(false);}} style={{padding:"9px 16px",borderRadius:9,border:"none",background:C.lgray,color:C.navy,fontWeight:"bold",fontSize:13,cursor:"pointer",marginBottom:14}}>← Volver</button>
         <div style={{background:C.navy,borderRadius:14,padding:18,marginBottom:12,color:"#fff"}}>
           <div style={{fontSize:18,fontWeight:"bold"}}>{c.vip?"⭐ ":""}{c.nombre}</div>
           <div style={{opacity:.6,fontSize:12,marginTop:4}}>{(c.bancos||[]).map(b=>`${b.banco}: ${b.porcentaje}%`).join(" · ")}</div>
@@ -613,18 +657,65 @@ function Clientes({cls,movs,onAdd,onEdit,onDel,C}){
           <div style={{fontSize:30,fontWeight:"bold",marginTop:10,color:s>=0?"#a5d6a7":"#ef9a9a"}}>{fmt(s)}</div>
           <div style={{fontSize:11,opacity:.6}}>Saldo actual</div>
         </div>
+
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
           {[["📥",fmt(ing),C.lgreen,C.green],["📤",fmt(eg),C.lred,C.red],["💸",fmt(com),C.lgold,C.gold]].map(([l,v,bg,col])=>(
             <div key={l} style={{background:bg,borderRadius:10,padding:"10px 8px",textAlign:"center"}}><div style={{fontSize:16}}>{l}</div><div style={{fontWeight:"bold",fontSize:12,color:col}}>{v}</div></div>
           ))}
         </div>
-        {[...cm].sort((a,b)=>b.fecha.localeCompare(a.fecha)).map(m=>{const mt=TIPO_META[m.tipo];return(
-          <div key={m.id} style={{background:C.cardBg,borderRadius:14,padding:14,boxShadow:"0 2px 10px rgba(0,0,0,0.07)",marginBottom:8,display:"flex",gap:10,alignItems:"center"}}>
-            <div style={{background:mt.bg,borderRadius:8,padding:"6px 8px",fontSize:16}}>{mt.emoji}</div>
-            <div style={{flex:1}}><div style={{fontWeight:"bold",fontSize:13,color:C.navy}}>{m.concepto||"Sin concepto"}</div><div style={{fontSize:11,color:C.gray}}>{fmtDate(m.fecha)}{m.banco&&` · ${m.banco}`}{m.esNomina&&" · Nómina"}</div></div>
-            <div style={{textAlign:"right"}}><div style={{fontWeight:"bold",color:m.tipo==="egreso"?C.red:C.green}}>{fmt(m.montoFinal)}</div>{m.comision>0&&<div style={{fontSize:10,color:C.gold}}>com: {fmt(m.comision)}</div>}</div>
+
+        {/* Botón reajuste */}
+        <button onClick={()=>setReajuste(!reajuste)} style={{width:"100%",padding:"10px",borderRadius:9,border:`1.5px solid ${C.gold}`,background:reajuste?C.lgold:C.cardBg,color:C.gold,fontWeight:"bold",fontSize:13,cursor:"pointer",marginBottom:12}}>
+          ⚖️ {reajuste ? "Cancelar reajuste" : "Reajustar saldo"}
+        </button>
+
+        {reajuste&&(
+          <div style={{background:C.lgold,borderRadius:14,padding:16,marginBottom:12,border:`1.5px solid ${C.gold}`}}>
+            <div style={{fontSize:12,color:C.gold,fontWeight:"bold",marginBottom:12}}>⚖️ Reajuste de saldo para {c.nombre}</div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:10,padding:"8px 12px",background:C.white,borderRadius:8}}>
+              <span style={{color:C.gray,fontSize:13}}>Saldo actual</span>
+              <span style={{fontWeight:"bold",color:s>=0?C.green:C.red}}>{fmt(s)}</span>
+            </div>
+            <span style={{fontSize:10,color:C.gray,letterSpacing:1.5,textTransform:"uppercase",marginBottom:3,display:"block"}}>Nuevo saldo ($)</span>
+            <input type="text" inputMode="decimal" placeholder="Ej: 0.00" value={nuevoSaldo} onChange={e=>setNuevoSaldo(e.target.value)} style={{...inp2,marginBottom:10,fontSize:16}} />
+
+            {parseMonto(nuevoSaldo)!==undefined&&nuevoSaldo!==""&&(()=>{
+              const nuevo=parseMonto(nuevoSaldo);
+              const dif=nuevo-s;
+              return(
+                <div style={{padding:"10px 12px",background:C.white,borderRadius:8,marginBottom:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                    <span style={{fontSize:12,color:C.gray}}>Diferencia (ajuste)</span>
+                    <span style={{fontWeight:"bold",color:dif>=0?C.green:C.red}}>{dif>=0?"+":""}{fmt(dif)}</span>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between"}}>
+                    <span style={{fontSize:12,color:C.gray}}>Saldo resultante</span>
+                    <span style={{fontWeight:"bold",color:nuevo>=0?C.green:C.red}}>{fmt(nuevo)}</span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <span style={{fontSize:10,color:C.gray,letterSpacing:1.5,textTransform:"uppercase",marginBottom:3,display:"block"}}>Concepto del ajuste</span>
+            <input value={notaAjuste} onChange={e=>setNotaAjuste(e.target.value)} style={{...inp2,marginBottom:12}} />
+
+            <button onClick={hacerReajuste} disabled={!nuevoSaldo} style={{width:"100%",padding:"12px",borderRadius:9,border:"none",background:nuevoSaldo?C.navy:"#ccc",color:"#fff",fontWeight:"bold",fontSize:14,cursor:nuevoSaldo?"pointer":"not-allowed"}}>
+              ✅ Aplicar reajuste
+            </button>
           </div>
-        );})}
+        )}
+
+        {[...cm].sort((a,b)=>b.fecha.localeCompare(a.fecha)).map(m=>{
+          const mt=TIPO_META[m.tipo]||TIPO_META.ajuste;
+          const esPos = m.montoFinal >= 0;
+          return(
+            <div key={m.id} style={{background:C.cardBg,borderRadius:14,padding:14,boxShadow:"0 2px 10px rgba(0,0,0,0.07)",marginBottom:8,display:"flex",gap:10,alignItems:"center"}}>
+              <div style={{background:mt.bg,borderRadius:8,padding:"6px 8px",fontSize:16}}>{mt.emoji}</div>
+              <div style={{flex:1}}><div style={{fontWeight:"bold",fontSize:13,color:C.navy}}>{m.concepto||"Sin concepto"}</div><div style={{fontSize:11,color:C.gray}}>{fmtDate(m.fecha)}{m.banco&&` · ${m.banco}`}{m.esNomina&&" · Nómina"}</div></div>
+              <div style={{textAlign:"right"}}><div style={{fontWeight:"bold",color:m.tipo==="egreso"||(m.tipo==="ajuste"&&!esPos)?C.red:C.green}}>{esPos?"+":""}{fmt(m.montoFinal)}</div>{m.comision>0&&<div style={{fontSize:10,color:C.gold}}>com: {fmt(m.comision)}</div>}</div>
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -1237,26 +1328,26 @@ export default function App(){
   if(!loggedIn)return<Login onLogin={()=>setLoggedIn(true)} C={C} />;
 
   return(
-    <div style={{fontFamily:"Georgia,serif",minHeight:"100vh",background:C.bg,paddingBottom:80,color:C.text}}>
-      <div style={{background:C.navy,padding:"16px 16px 12px",color:"#fff",position:"sticky",top:0,zIndex:10,boxShadow:"0 2px 8px rgba(0,0,0,0.2)"}}>
-        <div style={{fontSize:9,letterSpacing:4,opacity:.5,textTransform:"uppercase"}}>Control Financiero</div>
-        <div style={{fontSize:20,fontWeight:"bold",marginTop:2}}>{TABS.find(t=>t.key===tab)?.emoji} {TABS.find(t=>t.key===tab)?.label}</div>
+    <div style={{fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",minHeight:"100vh",background:C.bg,paddingBottom:80,color:C.text}}>
+      <div style={{background:C.cardBg,padding:"16px 18px 12px",color:C.text,position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontSize:10,letterSpacing:3,color:C.gray,textTransform:"uppercase"}}>Control Financiero</div>
+        <div style={{fontSize:18,fontWeight:"700",marginTop:2,color:C.text,letterSpacing:"-0.5px"}}>{TABS.find(t=>t.key===tab)?.label}</div>
       </div>
       <div style={{padding:"14px 12px",maxWidth:620,margin:"0 auto"}}>
         {tab==="resumen"&&<Resumen cls={cls} ctas={ctas} movs={movs} meta={meta} onSetMeta={v=>{setMeta(v);}} dark={dark} onToggleDark={()=>setDark(!dark)} onLock={()=>setLoggedIn(false)} C={C} />}
         {tab==="calc"&&<CalculadoraRapida clientes={cls} C={C} />}
         {tab==="movimientos"&&<Movimientos cls={cls} ctas={ctas} movs={movs} onAdd={m=>setMovs(p=>[...p,m])} onEdit={m=>setMovs(p=>p.map(x=>x.id===m.id?m:x))} onDel={id=>setMovs(p=>p.filter(x=>x.id!==id))} clientesRecientes={recientes} onUpdateRecientes={updateRecientes} C={C} />}
-        {tab==="clientes"&&<Clientes cls={cls} movs={movs} onAdd={c=>setCls(p=>[...p,c])} onEdit={c=>setCls(p=>p.map(x=>x.id===c.id?c:x))} onDel={id=>setCls(p=>p.filter(x=>x.id!==id))} C={C} />}
+        {tab==="clientes"&&<Clientes cls={cls} movs={movs} onAdd={c=>setCls(p=>[...p,c])} onEdit={c=>setCls(p=>p.map(x=>x.id===c.id?c:x))} onDel={id=>setCls(p=>p.filter(x=>x.id!==id))} onAddMov={m=>setMovs(p=>[...p,m])} C={C} />}
         {tab==="cuentas"&&<Cuentas ctas={ctas} movs={movs} onAdd={c=>setCtas(p=>[...p,c])} onEdit={c=>setCtas(p=>p.map(x=>x.id===c.id?c:x))} onDel={id=>setCtas(p=>p.filter(x=>x.id!==id))} onConciliar={m=>setMovs(p=>[...p,m])} C={C} />}
         {tab==="reportes"&&<Reportes cls={cls} ctas={ctas} movs={movs} C={C} />}
         {tab==="cierres"&&<Cierres cls={cls} ctas={ctas} movs={movs} cierres={cierres} onCerrar={c=>setCierres(p=>[...p,c])} onBorrarUno={id=>setCierres(p=>p.filter(x=>x.id!==id))} onBorrarTodos={()=>setCierres([])} C={C} todosMovs={movs} todasCtas={ctas} />}
       </div>
-      <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.cardBg,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:20,boxShadow:"0 -2px 8px rgba(0,0,0,0.06)",overflowX:"auto"}}>
+      <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.cardBg,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:20,overflowX:"auto"}}>
         {TABS.map(t=>(
-          <button key={t.key} onClick={()=>setTab(t.key)} style={{flex:"0 0 auto",minWidth:60,padding:"9px 8px 7px",border:"none",background:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-            <span style={{fontSize:17}}>{t.emoji}</span>
-            <span style={{fontSize:9,color:tab===t.key?C.navy:C.gray,fontWeight:tab===t.key?"bold":"normal",letterSpacing:.5,whiteSpace:"nowrap"}}>{t.label}</span>
-            {tab===t.key&&<div style={{width:20,height:2,background:C.navy,borderRadius:2}} />}
+          <button key={t.key} onClick={()=>setTab(t.key)} style={{flex:"0 0 auto",minWidth:60,padding:"10px 8px 8px",border:"none",background:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+            <span style={{fontSize:16}}>{t.emoji}</span>
+            <span style={{fontSize:9,color:tab===t.key?C.blue:C.gray,fontWeight:tab===t.key?"600":"400",letterSpacing:.5,whiteSpace:"nowrap"}}>{t.label}</span>
+            {tab===t.key&&<div style={{width:16,height:2,background:C.blue,borderRadius:2}} />}
           </button>
         ))}
       </div>
