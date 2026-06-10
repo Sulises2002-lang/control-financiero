@@ -68,10 +68,15 @@ function saldoCuenta(c,movs){
 }
 function resumen(cls,ctas,movs){
   const total=ctas.reduce((a,c)=>a+saldoCuenta(c,movs),0);
+  // BUG 1 FIX: dineroClientes solo cuenta clientes con saldo positivo
+  // Los ingresos sin cliente son dinero propio, no de clientes
   const dineroC=cls.reduce((a,c)=>a+Math.max(saldoCliente(c,movs),0),0);
-  const ing=movs.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoOriginal,0);
-  const eg=movs.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0);
+  // BUG 3 FIX: ingresos usan montoFinal (lo que realmente entra al cliente)
+  // montoOriginal ya está reflejado en saldoCuenta
+  const ing=movs.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.montoFinal,0);
+  const eg =movs.filter(m=>m.tipo==="egreso").reduce((a,m)=>a+m.montoFinal,0);
   const com=movs.filter(m=>m.tipo==="ingreso").reduce((a,m)=>a+m.comision,0);
+  // disponible = lo que hay en cuentas menos lo que pertenece a clientes = tuyo real
   return{total,dineroC,disponible:total-dineroC,ing,eg,com};
 }
 
@@ -638,15 +643,20 @@ function Clientes({cls,movs,onAdd,onEdit,onDel,onAddMov,t}){
         {!cm.length&&<div style={{color:t.sub,textAlign:"center",padding:20,fontSize:13}}>Sin movimientos</div>}
         {[...cm].sort((a,b)=>b.fecha.localeCompare(a.fecha)).map(m=>{
           const esPos=m.montoFinal>=0;
+          const montoDisplay=m.tipo==="egreso"||(m.tipo==="ajuste"&&m.montoFinal<0)?`-${fmt(Math.abs(m.montoFinal))}`:fmt(Math.abs(m.montoFinal));
+          const colMonto=m.tipo==="egreso"||(m.tipo==="ajuste"&&m.montoFinal<0)?t.red:t.green;
           return(
             <div key={m.id} style={card(t,{padding:"12px 14px"})}>
               <div style={row()}>
                 <div style={{flex:1}}>
                   <div style={{fontWeight:600,fontSize:13,color:t.text}}>{m.concepto||"Sin concepto"}</div>
-                  <div style={{fontSize:11,color:t.sub,marginTop:2}}>{fmtDate(m.fecha)}{m.banco&&` · ${m.banco}`}{m.esNomina&&" · Nómina"}</div>
+                  <div style={{fontSize:11,color:t.sub,marginTop:2}}>
+                    {fmtDate(m.fecha)}{m.banco&&` · ${m.banco}`}{m.esNomina&&" · Nómina"}
+                    {!m.cuentaId&&m.tipo==="ajuste"&&<span style={tag(t.amberBg,t.amber)}>Reajuste</span>}
+                  </div>
                 </div>
                 <div style={{textAlign:"right"}}>
-                  <div style={{fontWeight:600,color:m.tipo==="egreso"||(m.tipo==="ajuste"&&!esPos)?t.red:t.green}}>{esPos&&m.tipo!=="egreso"?"+":""}{fmt(m.montoFinal)}</div>
+                  <div style={{fontWeight:600,color:colMonto}}>{montoDisplay}</div>
                   {m.comision>0&&<div style={{fontSize:10,color:t.amber}}>com: {fmt(m.comision)}</div>}
                 </div>
               </div>
@@ -799,32 +809,42 @@ function Movimientos({cls,ctas,movs,onAdd,onEdit,onDel,recientes,onUpdateRecient
         const ctaO=ctas.find(c=>c.id===m.cuentaOrigenId);
         const ctaD=ctas.find(c=>c.id===m.cuentaDestinoId);
         const esT=m.tipo==="transferencia";
+        const esReajuste=m.tipo==="ajuste"&&!m.cuentaId&&m.clienteId;
         const col=tipoColor[m.tipo]||t.sub;
+        // Signo correcto para mostrar el monto
+        const montoDisplay=m.tipo==="egreso"||(m.tipo==="ajuste"&&m.montoFinal<0)?`-${fmt(Math.abs(m.montoFinal))}`:fmt(Math.abs(m.montoFinal));
+        const colMonto=m.tipo==="egreso"||(m.tipo==="ajuste"&&m.montoFinal<0)?t.red:m.tipo==="ingreso"?t.green:t.amber;
         return(
-          <div key={m.id} style={card(t,{padding:"12px 14px",borderLeft:m.revisado?`3px solid ${t.green}`:""})}>
+          <div key={m.id} style={card(t,{padding:"12px 14px",borderLeft:m.revisado?`3px solid ${t.green}`:esReajuste?`3px solid ${t.amber}`:""})}>
             <div style={row({marginBottom:6})}>
               <div style={{flex:1}}>
-                <div style={row({gap:6,marginBottom:2})}>
+                <div style={row({gap:6,marginBottom:2,flexWrap:"wrap"})}>
                   <span style={{fontWeight:600,fontSize:14,color:t.text}}>{m.concepto||"Sin concepto"}</span>
                   <span style={tag(t.muted,col)}>{m.tipo}</span>
+                  {esReajuste&&<span style={tag(t.amberBg,t.amber)}>Reajuste</span>}
                   {m.esNomina&&<span style={tag(t.amberBg,t.amber)}>Nómina</span>}
                   {m.estado==="pendiente"&&<span style={tag(t.amberBg,t.amber)}>Pendiente</span>}
                   {m.revisado&&<span style={tag(t.greenBg,t.green)}>✓</span>}
                 </div>
                 <div style={{fontSize:11,color:t.sub}}>
-                  {esT?`${ctaO?.nombre} → ${ctaD?.nombre}`:`${cta?.nombre}${cli?` · ${cli.nombre}`:""}`} · {fmtDate(m.fecha)}
+                  {esT
+                    ?`${ctaO?.nombre} → ${ctaD?.nombre}`
+                    :esReajuste
+                    ?`Solo cliente${cli?` · ${cli.nombre}`:""}`
+                    :`${cta?.nombre||""}${cli?` · ${cli.nombre}`:""}`
+                  } · {fmtDate(m.fecha)}
                 </div>
               </div>
               <div style={{textAlign:"right",marginLeft:8}}>
-                <div style={{fontWeight:700,color:col}}>{fmt(m.montoFinal)}</div>
+                <div style={{fontWeight:700,color:colMonto}}>{montoDisplay}</div>
                 {m.comision>0&&<div style={{fontSize:10,color:t.amber}}>com: {fmt(m.comision)}</div>}
               </div>
             </div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               <button onClick={()=>setModal(esT?{...m,_t:true}:m)} style={btn(t.muted,t.sub,{padding:"4px 8px",fontSize:11})}>Editar</button>
-              {!esT&&<button onClick={()=>{const clon={...m,id:uid(),concepto:(m.concepto||"")+" (copia)",historial:[],revisado:false};onAdd(clon);}} style={btn(t.muted,t.sub,{padding:"4px 8px",fontSize:11})}>Duplicar</button>}
-              <button onClick={()=>onEdit({...m,revisado:!m.revisado})} style={btn(m.revisado?t.muted:t.greenBg,m.revisado?t.sub:t.green,{padding:"4px 8px",fontSize:11})}>{m.revisado?"Sin revisar":"✓ Revisar"}</button>
-              <button onClick={()=>{if(window.confirm(`¿Eliminar?\n${m.concepto||"Sin concepto"} · ${fmt(m.montoFinal)}`))onDel(m.id);}} style={btn(t.redBg,t.red,{padding:"4px 8px",fontSize:11})}>Eliminar</button>
+              {!esT&&!esReajuste&&<button onClick={()=>{const clon={...m,id:uid(),concepto:(m.concepto||"")+" (copia)",historial:[],revisado:false};onAdd(clon);}} style={btn(t.muted,t.sub,{padding:"4px 8px",fontSize:11})}>Duplicar</button>}
+              {!esReajuste&&<button onClick={()=>onEdit({...m,revisado:!m.revisado})} style={btn(m.revisado?t.muted:t.greenBg,m.revisado?t.sub:t.green,{padding:"4px 8px",fontSize:11})}>{m.revisado?"Sin revisar":"✓ Revisar"}</button>}
+              <button onClick={()=>{if(window.confirm(`¿Eliminar?\n${m.concepto||"Sin concepto"} · ${montoDisplay}`))onDel(m.id);}} style={btn(t.redBg,t.red,{padding:"4px 8px",fontSize:11})}>Eliminar</button>
             </div>
           </div>
         );
